@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="theme-color" content="#0a1016" />
+<title>Driving in Soest</title>
+<link rel="stylesheet" href="./src/styles/main.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene"></canvas>
+
+    <!-- boot -->
+    <div id="boot">
+      <div class="boot-inner">
+        <div class="boot-mark">SOEST</div>
+        <div class="boot-bar"><i id="bootFill"></i></div>
+        <div class="boot-label" id="bootLabel">Stad wordt geladen…</div>
+      </div>
+    </div>
+
+    <!-- hud -->
+    <div id="hud" class="hidden">
+      <div class="hud-topleft">
+        <div class="mission-card" id="missionCard">
+          <div class="mission-row">
+            <span class="mission-kicker" id="missionKicker">TAXIRIT</span>
+            <span class="mission-fare" id="missionFare">€ 0</span>
+          </div>
+          <div class="mission-title" id="missionTitle">Wacht op een rit…</div>
+          <div class="mission-sub" id="missionSub">Blijf staan of rijd rond in Soest.</div>
+        </div>
+        <div class="nav-card" id="navCard">
+          <div class="nav-arrow" id="navArrow">↑</div>
+          <div class="nav-body">
+            <div class="nav-instruction" id="navInstruction">—</div>
+            <div class="nav-detail"><span id="navDetail">—</span><b id="navDistance"></b></div>
+            <div class="nav-progress"><i id="navProgress"></i></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-topright">
+        <div class="minimap-wrap" id="minimapWrap">
+          <canvas id="minimap" width="440" height="440"></canvas>
+          <div class="minimap-ring"></div>
+          <div class="minimap-north" id="minimapNorth">N</div>
+          <div class="minimap-clock"><span id="clockTime">17:20</span><em id="clockPhase">Dag</em></div>
+          <div class="wanted" id="wanted"></div>
+        </div>
+      </div>
+
+      <div class="hud-bottomright">
+        <div class="speedo" id="speedo">
+          <div class="speedo-dial">
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="dial-track" cx="60" cy="60" r="52"></circle>
+              <circle class="dial-fill" id="dialFill" cx="60" cy="60" r="52"></circle>
+            </svg>
+            <div class="speedo-value"><b id="speedValue">0</b><small>km/u</small></div>
+          </div>
+          <div class="speedo-meta">
+            <div class="gear" id="gearValue">P</div>
+            <div class="fuel"><i id="fuelFill"></i></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-bottomleft">
+        <div class="radio-chip" id="radioChip">
+          <span class="radio-dot" id="radioDot"></span>
+          <span class="radio-name" id="radioName">Radio uit</span>
+        </div>
+        <div class="wallet"><small>CONTANT</small><b id="walletValue">€ 0</b></div>
+      </div>
+
+      <div class="hud-center" id="notice"></div>
+      <div class="hud-prompt" id="prompt"></div>
+
+      <button class="phone-btn" id="phoneBtn" type="button" aria-label="Telefoon openen">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="2.5" width="12" height="19" rx="3" />
+          <path d="M10.5 18.5h3" />
+        </svg>
+      </button>
+    </div>
+
+    <div id="phone" class="hidden">
+      <div class="phone-frame">
+        <div class="phone-status">
+          <span id="phoneTime">17:20</span>
+          <span>SOEST · 4G</span>
+          <span>82%</span>
+        </div>
+        <div class="phone-home" id="phoneHome"></div>
+        <div class="phone-view hidden" id="phoneView">
+          <button class="phone-back" id="phoneBack" type="button">Terug</button>
+          <div id="phoneBody"></div>
+        </div>
+        <div class="phone-bar"></div>
+      </div>
+    </div>
+
+    <!-- start menu -->
+    <div id="menu" class="screen">
+      <div class="menu-bg"></div>
+      <div class="menu-panel">
+        <div class="menu-head">
+          <div class="menu-kicker">SOEST · NOORD-HOLLAND? NEE, UTRECHT</div>
+          <h1 class="menu-title">Driving<br /><em>in Soest</em></h1>
+          <p class="menu-sub">Een open wereld taxi-avontuur in het groenste dorp van de provincie.</p>
+        </div>
+        <div class="menu-modes">
+          <button class="mode-card" data-mode="taxi">
+            <span class="mode-icon">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3.2 13.6h17.6" />
+                <path d="M5 13.6V10.4l1.9-3.3A2.1 2.1 0 0 1 8.7 6h6.6a2.1 2.1 0 0 1 1.8 1.1l1.9 3.3v3.2" />
+                <circle cx="7.6" cy="16.6" r="1.5" />
+                <circle cx="16.4" cy="16.6" r="1.5" />
+                <path d="M9.4 6.9 8.4 9.6h7.2l-1-2.7" />
+              </svg>
+            </span>
+            <span class="mode-copy">
+              <b>Taxi carrière</b>
+              <small>Pak ritten, verdien geld, bouw je wagenpark op.</small>
+            </span>
+          </button>
+          <button class="mode-card" data-mode="free">
+            <span class="mode-icon">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6.5 20.5 9.2 3.5" />
+                <path d="M17.5 20.5 14.8 3.5" />
+                <path d="M12 6.2v3M12 13.6v3" />
+              </svg>
+            </span>
+            <span class="mode-copy">
+              <b>Vrij rijden</b>
+              <small>De hele stad, alle auto's, geen haast.</small>
+            </span>
+          </button>
+        </div>
+        <div class="menu-foot">
+          <span>WASD rijden · Shift boost · E in/uit · C camera · R radio · N tijd · Esc menu</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- pause -->
+    <div id="pause" class="screen hidden">
+      <div class="pause-panel">
+        <h2>Pauze</h2>
+        <div class="pause-stats" id="pauseStats"></div>
+        <div class="pause-settings">
+          <label>Tijd van de dag <input type="range" id="setTime" min="0" max="24" step="0.1" /></label>
+          <label>Radiovolume <input type="range" id="setRadio" min="0" max="1" step="0.01" /></label>
+          <label>Effecten <input type="range" id="setSfx" min="0" max="1" step="0.01" /></label>
+          <label class="check"><input type="checkbox" id="setFar" /> Verre zichtafstand</label>
+          <label class="check"><input type="checkbox" id="setCycle" checked /> Dag-/nachtcyclus</label>
+        </div>
+        <div class="pause-actions">
+          <button id="pauseResume" class="btn-primary">Verder rijden</button>
+          <button id="pauseQuit" class="btn-ghost">Naar hoofdmenu</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="error" class="hidden"></div>
+  </div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.min.js"
+      }
+    }
+  </script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
