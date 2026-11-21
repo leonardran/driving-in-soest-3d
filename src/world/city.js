@@ -20,7 +20,7 @@ const PATCH_STYLE = {
   lake: null
 };
 
-export function buildCity(network, buildingUniforms) {
+export function buildCity(network, buildingUniforms, opts = {}) {
   const rng = makeRng(90210);
   const group = new THREE.Group();
   group.name = 'city';
@@ -201,8 +201,8 @@ export function buildCity(network, buildingUniforms) {
     const nz = -edge.dx;
 
     // centre line
-    const dashLen = motorway ? 5 : 3;
-    const gap = motorway ? 7 : 6;
+    const dashLen = motorway ? 5 : 2.6;
+    const gap = motorway ? 7 : 5.2;
     const wHalf = 0.09;
     const count = Math.floor(usable / (dashLen + gap));
     for (let k = 0; k < count; k++) {
@@ -222,7 +222,7 @@ export function buildCity(network, buildingUniforms) {
     }
 
     // edge lines on the wider roads
-    if (edge.width >= 9) {
+    if (edge.width >= 8) {
       const eo = edge.width * 0.5 - 0.42;
       const ew = 0.07;
       const t0 = insetA;
@@ -244,8 +244,8 @@ export function buildCity(network, buildingUniforms) {
     }
 
     // cycle lanes on the main streets
-    if (edge.width >= 11 && !motorway) {
-      const o = edge.width * 0.5 - 1.55;
+    if (edge.width >= 8.4 && !motorway) {
+      const o = edge.width * 0.5 - 1.35;
       const t0 = insetA;
       const t1 = edge.len - insetB;
       const ax2 = edge.ax + edge.dx * t0;
@@ -253,8 +253,8 @@ export function buildCity(network, buildingUniforms) {
       const bx2 = edge.ax + edge.dx * t1;
       const bz2 = edge.az + edge.dz * t1;
       for (const side of [1, -1]) {
-        const hi = Math.max(o * side, (o - 1.5) * side);
-        const lo = Math.min(o * side, (o - 1.5) * side);
+        const hi = Math.max(o * side, (o - 1.3) * side);
+        const lo = Math.min(o * side, (o - 1.3) * side);
         const y2 = 0.026;
         bike.quad(
           [ax2 + nx * hi, y2, az2 + nz * hi],
@@ -325,15 +325,17 @@ export function buildCity(network, buildingUniforms) {
   const bollards = placeBollards(network, rng);
   if (bollards.length) group.add(buildBollards(bollards));
 
+  if (opts.hedges && opts.hedges.length) group.add(buildHedges(opts.hedges));
+
   return {
     group,
     lamps,
     treeCount: trees.length,
     lampCount: lamps.length,
     setNight(night) {
-      lampGroup.userData.glowMat.opacity = 0.85 * night;
+      lampGroup.userData.glowMat.opacity = 1.05 * night;
       lampGroup.userData.glow.visible = night > 0.02;
-      lampGroup.userData.headMat.emissiveIntensity = 0.2 + night * 2.4;
+      lampGroup.userData.headMat.emissiveIntensity = 0.25 + night * 3.4;
       void buildingUniforms;
     }
   };
@@ -392,21 +394,45 @@ function placeTrees(network, rng) {
     if (out.length > 6000) break;
   }
 
-  return out.slice(0, 6200);
+  return out.slice(0, 5200);
+}
+
+function crownGeometry() {
+  const parts = [
+    [0, 0, 0, 1.0],
+    [0.42, 0.34, 0.18, 0.68],
+    [-0.36, 0.22, -0.3, 0.72]
+  ];
+  const pos = [];
+  for (const [ox, oy, oz, s] of parts) {
+    const g = new THREE.IcosahedronGeometry(s, 0);
+    g.translate(ox, oy, oz);
+    const p = g.attributes.position.array;
+    for (let i = 0; i < p.length; i += 3) {
+      // a little organic wobble
+      const k = 1 + Math.sin(p[i] * 3.1 + p[i + 2] * 2.3) * 0.09;
+      pos.push(p[i] * k, p[i + 1] * k, p[i + 2] * k);
+    }
+    g.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  return geo;
 }
 
 function buildTreeMeshes(trees) {
   const g = new THREE.Group();
-  const n = trees.length;
-  const trunkGeom = new THREE.CylinderGeometry(0.16, 0.26, 1, 5, 1);
+  const n = Math.max(1, trees.length);
+  const trunkGeom = new THREE.CylinderGeometry(0.22, 0.34, 1, 6, 1);
   trunkGeom.translate(0, 0.5, 0);
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 1 });
   const trunks = new THREE.InstancedMesh(trunkGeom, trunkMat, n);
   trunks.frustumCulled = false;
 
-  const crownGeom = new THREE.IcosahedronGeometry(1, 0);
+  const crownGeom = crownGeometry();
   const crownMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true });
-  const crowns = new THREE.InstancedMesh(crownGeom, crownMat, Math.max(1, n));
+  const crowns = new THREE.InstancedMesh(crownGeom, crownMat, n);
   crowns.frustumCulled = false;
 
   const m = new THREE.Matrix4();
@@ -416,21 +442,21 @@ function buildTreeMeshes(trees) {
   const c = new THREE.Color();
   const up = new THREE.Vector3(0, 1, 0);
 
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < trees.length; i++) {
     const t = trees[i];
-    const height = 5.2 * t.s;
+    const height = 6.4 * t.s;
     q.setFromAxisAngle(up, t.r);
     p.set(t.x, 0, t.z);
-    s.set(t.s, height * 0.55, t.s);
+    s.set(t.s * 1.15, height * 0.62, t.s * 1.15);
     m.compose(p, q, s);
     trunks.setMatrixAt(i, m);
 
-    const crownR = (2.0 + t.s * 1.15) * (0.85 + t.tint * 0.5);
-    p.set(t.x, height * 0.62 + crownR * 0.35, t.z);
-    s.set(crownR, crownR * (0.95 + t.tint * 0.35), crownR);
+    const crownR = (2.1 + t.s * 1.2) * (0.88 + t.tint * 0.45);
+    p.set(t.x, height * 0.6 + crownR * 0.55, t.z);
+    s.set(crownR, crownR * (0.92 + t.tint * 0.3), crownR);
     m.compose(p, q, s);
     crowns.setMatrixAt(i, m);
-    c.setHSL(0.26 - t.tint * 0.05, 0.32 + t.tint * 0.2, 0.2 + t.tint * 0.11);
+    c.setHSL(0.27 - t.tint * 0.055, 0.34 + t.tint * 0.18, 0.19 + t.tint * 0.1);
     crowns.setColorAt(i, c);
   }
   trunks.instanceMatrix.needsUpdate = true;
@@ -450,9 +476,13 @@ function placeLamps(network, rng) {
       const t = i * step + step * 0.5;
       const side = i % 2 === 0 ? 1 : -1;
       const off = edge.width * 0.5 + 1.1;
+      const x = edge.ax + edge.dx * t + edge.dz * off * side;
+      const z = edge.az + edge.dz * t - edge.dx * off * side;
+      // the arm must point back over the road, so aim it at the kerb
       out.push({
-        x: edge.ax + edge.dx * t + edge.dz * off * side,
-        z: edge.az + edge.dz * t - edge.dx * off * side
+        x,
+        z,
+        rot: Math.atan2(-edge.dz * side, edge.dx * side)
       });
       if (out.length > 2400) return out;
     }
@@ -487,7 +517,7 @@ function buildLampMeshes(lamps) {
   const heads = new THREE.InstancedMesh(headGeom, headMat, n);
   heads.frustumCulled = false;
 
-  const glowGeom = new THREE.PlaneGeometry(15, 15);
+  const glowGeom = new THREE.PlaneGeometry(20, 20);
   glowGeom.rotateX(-Math.PI / 2);
   const glowMat = new THREE.MeshBasicMaterial({
     map: TEX.glow(),
@@ -568,6 +598,35 @@ function buildBollards(list) {
     mesh.setMatrixAt(i, m);
   }
   mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
+}
+
+// --- street furniture ----------------------------------------------------
+
+function buildHedges(list) {
+  const geom = new THREE.BoxGeometry(1, 1, 1);
+  geom.translate(0, 0.5, 0);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+  const mesh = new THREE.InstancedMesh(geom, mat, list.length);
+  mesh.frustumCulled = false;
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const p = new THREE.Vector3();
+  const s = new THREE.Vector3();
+  const c = new THREE.Color();
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < list.length; i++) {
+    const h = list[i];
+    q.setFromAxisAngle(up, h.rotY);
+    p.set(h.x, 0, h.z);
+    s.set(h.len, h.h * (0.85 + h.tint * 0.3), 0.7);
+    m.compose(p, q, s);
+    mesh.setMatrixAt(i, m);
+    c.setHSL(0.27 + h.tint * 0.03, 0.3 + h.tint * 0.16, 0.16 + h.tint * 0.08);
+    mesh.setColorAt(i, c);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   return mesh;
 }
 

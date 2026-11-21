@@ -838,3 +838,338 @@ body {
     padding: 24px 20px 18px;
   }
 }
+
+
+/* ---------- phone ---------- */
+
+.phone-btn {
+  position: absolute;
+  right: 18px;
+  top: 206px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  backdrop-filter: blur(14px);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.phone-btn:hover {
+  transform: translateY(-2px);
+  color: var(--accent);
+}
+
+#phone {
+  position: fixed;
+  inset: 0;
+  z-index: 32;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(4, 8, 12, 0.35);
+}
+
+.phone-frame {
+  pointer-events: auto;
+  width: min(348px, 94vw);
+  height: min(496px, 78vh);
+  border-radius: 34px;
+  background: linear-gradient(170deg, #161f28, #080c11);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.72), inset 0 0 0 5px rgba(255, 255, 255, 0.035);
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  overflow: hidden;
+  animation: phoneIn 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes phoneIn {
+  from {
+    transform: translateY(22px) scale(0.965);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.phone-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 16px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: var(--text-dim);
+}
+
+.phone-status span:first-child {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.phone-home {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px 6px;
+  align-content: start;
+  padding: 16px 8px;
+  overflow-y: auto;
+}
+
+.phone-app {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 2px;
+  transition: transform 0.14s ease;
+}
+
+.phone-app:hover {
+  transform: translateY(-2px);
+}
+
+.phone-app-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 17px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--c, var(--accent));
+}
+
+.phone-app-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.phone-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+
+.phone-view h3 {
+  margin: 4px 4px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.phone-back {
+  align-self: flex-start;
+  margin-bottom: 10px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.phone-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 12px;
+  margin-bottom: 7px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.phone-row:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.phone-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.phone-row-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-row-copy b {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.phone-row-copy small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+
+.phone-row-action {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.phone-slider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  margin-bottom: 7px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.phone-slider input {
+  flex: 1;
+  max-width: 170px;
+  accent-color: var(--accent);
+}
+
+.phone-map {
+  display: block;
+  width: 100%;
+  aspect-ratio: 62 / 64;
+  border-radius: 13px;
+  background: #16211a;
+  touch-action: none;
+  cursor: grab;
+}
+
+.phone-maptools {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.phone-maptools button {
+  flex: 1;
+  padding: 8px 0;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.phone-maptools button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.phone-poi-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.phone-poi {
+  padding: 8px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phone-poi:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.phone-note {
+  margin: 10px 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.phone-stats {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.phone-stats > div {
+  flex: 1;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+}
+
+.phone-stats small {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.phone-stats b {
+  display: block;
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.phone-bar {
+  width: 108px;
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.22);
+  margin: 8px auto 4px;
+}

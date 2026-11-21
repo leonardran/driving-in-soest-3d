@@ -166,17 +166,44 @@ export const TEX = {
     }, { wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping });
   },
 
+  arrow() {
+    return canvasTexture('arrow', 128, 192, (ctx, w, h) => {
+      ctx.clearRect(0, 0, w, h);
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, 'rgba(160,220,255,1)');
+      g.addColorStop(1, 'rgba(70,150,255,0.55)');
+      ctx.fillStyle = g;
+      // a navigation chevron pointing "up" in texture space
+      const cx = w / 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, 14);
+      ctx.lineTo(cx + 46, 96);
+      ctx.lineTo(cx + 18, 96);
+      ctx.lineTo(cx + 18, 176);
+      ctx.lineTo(cx - 18, 176);
+      ctx.lineTo(cx - 18, 96);
+      ctx.lineTo(cx - 46, 96);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(230,245,255,0.85)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }, { wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping });
+  },
+
   headlights() {
     return canvasTexture('headlights', 128, 128, (ctx, w, h) => {
-      const g = ctx.createLinearGradient(0, h, 0, 0);
-      g.addColorStop(0, 'rgba(255,246,214,0.55)');
-      g.addColorStop(1, 'rgba(255,246,214,0)');
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, 'rgba(255,246,214,0.62)');
+      g.addColorStop(0.55, 'rgba(255,244,206,0.22)');
+      g.addColorStop(1, 'rgba(255,240,200,0)');
       ctx.fillStyle = g;
+      // narrow at the bumper, spreading out with distance
       ctx.beginPath();
-      ctx.moveTo(w * 0.36, h);
-      ctx.lineTo(w * 0.64, h);
-      ctx.lineTo(w, 0);
-      ctx.lineTo(0, 0);
+      ctx.moveTo(w * 0.5 - 11, 0);
+      ctx.lineTo(w * 0.5 + 11, 0);
+      ctx.lineTo(w, h);
+      ctx.lineTo(0, h);
       ctx.closePath();
       ctx.fill();
     }, { wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping });

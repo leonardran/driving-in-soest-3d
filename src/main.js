@@ -7,6 +7,8 @@ import { buildNetwork, projectOnEdge } from './world/network.js';
 import { buildCity } from './world/city.js';
 import { buildBuildings, createBuildingMaterial } from './world/buildings.js';
 import { buildLandmarks } from './world/landmarks.js';
+import { buildProps } from './world/props.js';
+import { TEX } from './world/textures.js';
 import { createSky } from './world/sky.js';
 import { CollisionWorld } from './core/collision.js';
 import { GeomBuilder, vcMaterial } from './core/geom.js';
@@ -20,6 +22,7 @@ import { PoliceSystem, EmergencyServices } from './gameplay/police.js';
 import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { AudioEngine } from './ui/audio.js';
+import { Phone } from './ui/phone.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 14));
 
@@ -55,11 +58,11 @@ let buildings;
 let landmarks;
 let hud;
 let minimap;
+let phone;
 let audio;
 let nav;
 let traffic;
 let parked = [];
-let carLight;
 let crowd;
 let police;
 let emergency;
@@ -110,7 +113,7 @@ async function boot() {
 
   setProgress(0.5, 'Grond, bomen en lantaarnpalen…');
   await tick();
-  cityMesh = buildCity(network, buildingMat.uniforms);
+  cityMesh = buildCity(network, buildingMat.uniforms, { hedges: buildings.hedges });
   scene.add(cityMesh.group);
 
   setProgress(0.68, 'Kerk, molen en paleis…');
@@ -129,11 +132,16 @@ async function boot() {
   collision.addBuildings(buildings.boxes);
   addLandmarkColliders(collision);
 
-  setProgress(0.94, 'Verkeer en mensen…');
+  setProgress(0.9, 'Stoepen, bankjes en lantaarns…');
+  await tick();
+  const props = buildProps(network, buildings, collision);
+  scene.add(props.group);
+
+    setProgress(0.94, 'Verkeer en mensen…');
   await tick();
   nav = new Navigator(network);
-  traffic = new TrafficSystem(scene, network, collision, 20);
-  parked = spawnParkedCars(scene, network, collision, 46);
+  traffic = new TrafficSystem(scene, network, collision, 26);
+  parked = spawnParkedCars(scene, network, collision, 150);
   crowd = new Crowd(scene, network, 56);
   police = new PoliceSystem(scene, network, collision, nav);
   emergency = new EmergencyServices(scene, network, collision);
@@ -141,12 +149,31 @@ async function boot() {
   ribbon = new RouteRibbon(scene);
   hud.setWallet(game.money);
 
+  minimap = new Minimap(document.getElementById('minimap'), network, buildings);
+  phone = new Phone({
+    minimap,
+    network,
+    nav,
+    audio,
+    game,
+    hud,
+    sky,
+    camera,
+    wallet,
+    get taxi() { return taxi; },
+    get playerVehicle() { return playerVehicle; },
+    getPlayerX: () => (game.onFoot && foot ? foot.x : playerVehicle ? playerVehicle.x : 0),
+    getPlayerZ: () => (game.onFoot && foot ? foot.z : playerVehicle ? playerVehicle.z : 0),
+    getPlayerHeading: () => (game.onFoot && foot ? foot.heading : playerVehicle ? playerVehicle.heading : 0),
+    onCarSelect: (id) => switchCar(id),
+    onWaypoint: (wp) => setWaypoint(wp)
+  });
+
   setProgress(1, 'Klaar');
   await tick();
 
-  document.getElementById('boot').classList.add('done');
   document.getElementById('menu').classList.remove('hidden');
-  setTimeout(() => document.getElementById('boot').classList.add('hidden'), 700);
+  setTimeout(() => document.getElementById('boot').classList.add('hidden'), 500);
   window.addEventListener('resize', onResize);
   bindMenu();
   bindInput();
@@ -199,10 +226,11 @@ function startSession(mode) {
   let sz = spawn.z;
   if (near.edge) {
     const proj = projectOnEdge(near.edge, spawn.x, spawn.z);
-    const lane = near.edge.width * 0.23;
-    sx = proj.x + near.edge.dz * lane;
-    sz = proj.z - near.edge.dx * lane;
+    const lane = Math.max(1.25, (near.edge.width * 0.5 - 2.6) * 0.55);
     heading = Math.atan2(near.edge.dx, near.edge.dz);
+    // the right-hand lane, whichever way the edge runs
+    sx = proj.x - Math.cos(heading) * lane;
+    sz = proj.z + Math.sin(heading) * lane;
   }
   if (playerVehicle) scene.remove(playerVehicle.group);
   playerVehicle = new Vehicle({
@@ -211,16 +239,11 @@ function startSession(mode) {
     z: sz,
     heading,
     liveWheels: true,
-    isPlayer: true
+    isPlayer: true,
+    spot: true
   });
   scene.add(playerVehicle.group);
   playerVehicle.setHeadlights(sky.state.night > 0.45, 1);
-
-  if (!carLight) {
-    carLight = new THREE.PointLight(0xffd9a8, 0, 30, 2);
-    carLight.position.set(0, 3.4, 0);
-  }
-  playerVehicle.group.add(carLight);
 
   traffic.clearAround(sx, sz, 60);
   police.clearAround(sx, sz, 90);
@@ -252,6 +275,7 @@ function startSession(mode) {
 
 function bindInput() {
   window.addEventListener('keydown', (e) => {
+    if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
     if (e.repeat) {
       keys[e.code] = true;
       return;
@@ -275,6 +299,10 @@ function onKey(code) {
   if (!game.running) return;
   switch (code) {
     case 'Escape':
+      if (phone && phone.visible) {
+        phone.close();
+        break;
+      }
       togglePause();
       break;
     case 'KeyE':
@@ -295,6 +323,13 @@ function onKey(code) {
       break;
     case 'KeyN':
       game.time = (game.time + 3) % 24;
+      break;
+    case 'KeyM':
+    case 'Tab':
+      if (phone) phone.open('map');
+      break;
+    case 'KeyP':
+      if (phone) phone.toggle();
       break;
     default:
       break;
@@ -396,6 +431,7 @@ function loop(now) {
   }
 
   if (renderer && scene && camera) renderer.render(scene, camera);
+  if (phone) phone.update();
 }
 
 let idleAngle = 0.8;
@@ -451,9 +487,28 @@ function step(dt) {
   }
 
   // route ribbon + hud
-  const route = game.mode === 'taxi' && taxi ? taxi.route : null;
+  const taxiRoute = game.mode === 'taxi' && taxi ? taxi.route : null;
+  let route = taxiRoute;
+  let target = taxi && taxi.target ? taxi.target : null;
+  if (game.waypoint) {
+    game.waypointTimer = (game.waypointTimer || 0) + dt;
+    if (game.waypointTimer > 1.5) {
+      game.waypointTimer = 0;
+      const r = nav.routeAhead(playerVehicle.x, playerVehicle.z, playerVehicle.heading, game.waypoint.x, game.waypoint.z);
+      if (r) game.waypointRoute = r;
+    }
+    const d = Math.hypot(game.waypoint.x - playerVehicle.x, game.waypoint.z - playerVehicle.z);
+    if (d < 12) {
+      hud.toast('Waypoint bereikt');
+      game.waypoint = null;
+      game.waypointRoute = null;
+    } else if (!route) {
+      route = game.waypointRoute;
+      target = { x: game.waypoint.x, z: game.waypoint.z, color: '#ff5b4a' };
+    }
+  }
   if (route) {
-    ribbon.set(route.points);
+    ribbon.set(route.points, playerVehicle.x, playerVehicle.z);
     const g = nav.guidance(route.points, playerVehicle.x, playerVehicle.z, playerVehicle.heading);
     const rem = nav.remaining(route.points, playerVehicle.x, playerVehicle.z);
     hud.setNav(g, rem);
@@ -482,7 +537,6 @@ function step(dt) {
   }
 
   resolveVehicleCollisions();
-  if (carLight) carLight.intensity = night * 26;
 
   game.rides = taxi ? taxi.completed : 0;
 
@@ -501,7 +555,6 @@ function step(dt) {
 }
 
 let inputLoad = 0;
-let rawDt = 0.016;
 
 function readDriveInput() {
   const fwd = keys.KeyW || keys.ArrowUp ? 1 : 0;
@@ -533,6 +586,44 @@ function gearFor(v) {
   return '6';
 }
 
+/** Place a custom waypoint and navigate to it (used by the phone map). */
+function setWaypoint(wp) {
+  if (!wp) {
+    game.waypoint = null;
+    game.waypointRoute = null;
+    hud.toast('Waypoint gewist');
+    return;
+  }
+  game.waypoint = wp;
+  const route = nav.routeAhead(playerVehicle.x, playerVehicle.z, playerVehicle.heading, wp.x, wp.z);
+  game.waypointRoute = route;
+  if (route) hud.toast('Route ingesteld · ' + Math.round(route.distance) + ' m');
+  else hud.toast('Geen route gevonden');
+  if (phone) phone.close();
+}
+
+function switchCar(typeId) {
+  if (!playerVehicle) return;
+  const old = playerVehicle;
+  const x = old.x;
+  const z = old.z;
+  const heading = old.heading;
+  scene.remove(old.group);
+  playerVehicle = new Vehicle({
+    type: typeId,
+    x,
+    z,
+    heading,
+    liveWheels: true,
+    isPlayer: true,
+    spot: true
+  });
+  scene.add(playerVehicle.group);
+  if (taxi) taxi.setPlayer(playerVehicle);
+  hud.toast(`${CAR_TYPES[typeId].name} gepakt`);
+  audio.playChime('ui');
+}
+
 function nearestVehicle() {
   const candidates = [playerVehicle, ...traffic.vehicles(), ...police.cars.map((c) => c.vehicle)];
   let best = null;
@@ -559,13 +650,15 @@ function resolveVehicleCollisions() {
     if (o === p) continue;
     const dx = p.x - o.x;
     const dz = p.z - o.z;
-    const rr = p.radius + o.radius;
+    const rr = p.bodyRadius + (o.bodyRadius || 1);
     const d2 = dx * dx + dz * dz;
     if (d2 >= rr * rr || d2 < 1e-5) continue;
     const d = Math.sqrt(d2);
+    // ignore pairs that overlap only because the circles are rough
     const nx = dx / d;
     const nz = dz / d;
     const pen = rr - d;
+    if (pen < 0.08) continue;
     p.x += nx * pen * 0.62;
     p.z += nz * pen * 0.62;
     o.x -= nx * pen * 0.38;
@@ -695,7 +788,9 @@ function updateMinimap() {
 
   const target = taxi && taxi.target
     ? { x: taxi.target.x, z: taxi.target.z, color: taxi.job ? taxi.job.kind.color : '#f2c230' }
-    : null;
+    : game.waypoint
+      ? { x: game.waypoint.x, z: game.waypoint.z, color: '#ff5b4a' }
+      : null;
 
   const px = game.onFoot ? foot.x : playerVehicle.x;
   const pz = game.onFoot ? foot.z : playerVehicle.z;
@@ -705,7 +800,7 @@ function updateMinimap() {
     x: px,
     z: pz,
     heading,
-    route: taxi ? taxi.route : null,
+    route: (taxi && taxi.route) || game.waypointRoute,
     target,
     blips,
     night: sky ? sky.state.night : 0
@@ -808,84 +903,112 @@ function save() {
   }
 }
 
-// --- route ribbon --------------------------------------------------------
+// --- route guidance ------------------------------------------------------
+// A chain of flat arrow decals on the tarmac plus a soft glow, built from
+// shared PlaneGeometry meshes (the same path the car's light pool uses).
 
 class RouteRibbon {
   constructor(scene) {
     this.scene = scene;
-    this.mesh = null;
+    this.group = new THREE.Group();
+    this.group.frustumCulled = false;
+    scene.add(this.group);
     this.key = '';
+    this.pool = [];
+
+    this.arrowGeo = new THREE.PlaneGeometry(2.1, 3.6);
+    this.arrowGeo.rotateX(-Math.PI / 2);
+    this.arrowMat = new THREE.MeshBasicMaterial({
+      map: TEX.arrow(),
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -10,
+      polygonOffsetUnits: -10
+    });
+
+    this.glowGeo = new THREE.PlaneGeometry(4.4, 6.0);
+    this.glowGeo.rotateX(-Math.PI / 2);
+    this.glowMat = new THREE.MeshBasicMaterial({
+      map: TEX.glow(),
+      color: 0x3f9bff,
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
   }
 
-  set(points) {
+  set(points, playerX, playerZ) {
     if (!points || points.length < 2) {
       this.clear();
       return;
     }
-    const key = points.length + ':' + Math.round(points[0].x) + ':' + Math.round(points[0].z) + ':' +
-      Math.round(points[points.length - 1].x) + ':' + Math.round(points[points.length - 1].z);
+    let key = points.length + ':';
+    for (let i = 0; i < points.length; i += 2) {
+      key += Math.round(points[i].x / 30) + ',' + Math.round(points[i].z / 30) + ';';
+    }
     if (key === this.key) return;
     this.key = key;
 
-    const w = 0.55;
-    const y = 0.12;
-    const pos = [];
-    const idx = [];
-    let v = 0;
-    for (let i = 0; i < points.length; i++) {
-      const p = points[i];
-      const prev = points[Math.max(0, i - 1)];
-      const next = points[Math.min(points.length - 1, i + 1)];
-      let dx = next.x - prev.x;
-      let dz = next.z - prev.z;
-      const l = Math.hypot(dx, dz) || 1;
-      dx /= l;
-      dz /= l;
-      const nx = dz;
-      const nz = -dx;
-      pos.push(p.x + nx * w, y, p.z + nz * w);
-      pos.push(p.x - nx * w, y, p.z - nz * w);
-      if (i > 0) {
-        idx.push(v - 2, v - 1, v, v - 1, v + 1, v);
+    let used = 0;
+    const STEP = 8;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 1) continue;
+      const ux = dx / len;
+      const uz = dz / len;
+      const angle = Math.atan2(ux, uz);
+
+      for (let t = 2; t < len; t += STEP) {
+        const px = a.x + ux * t;
+        const pz = a.z + uz * t;
+        const d = Math.hypot(px - playerX, pz - playerZ);
+        if (d < 6 || d > 240) continue;
+
+        let m = this.pool[used];
+        if (!m) {
+          m = new THREE.Mesh(this.arrowGeo, this.arrowMat);
+          m.frustumCulled = false;
+          m.renderOrder = 6;
+          this.group.add(m);
+          const g = new THREE.Mesh(this.glowGeo, this.glowMat);
+          g.frustumCulled = false;
+          g.renderOrder = 5;
+          this.group.add(g);
+          m.userData.glow = g;
+          this.pool.push(m);
+        }
+        m.visible = true;
+        m.position.set(px, 0.22, pz);
+        m.rotation.y = angle + Math.PI;
+        const g = m.userData.glow;
+        g.visible = true;
+        g.position.set(px, 0.15, pz);
+        g.rotation.y = angle;
+        used++;
       }
-      v += 2;
     }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-
-    if (!this.mesh) {
-      this.mesh = new THREE.Mesh(
-        geo,
-        new THREE.MeshBasicMaterial({
-          color: 0x3d8bff,
-          transparent: true,
-          opacity: 0.62,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -4,
-          polygonOffsetUnits: -4
-        })
-      );
-      this.mesh.frustumCulled = false;
-      this.scene.add(this.mesh);
-    } else {
-      this.mesh.geometry.dispose();
-      this.mesh.geometry = geo;
+    for (let i = used; i < this.pool.length; i++) {
+      this.pool[i].visible = false;
+      this.pool[i].userData.glow.visible = false;
     }
-    this.mesh.visible = true;
+    this.group.visible = used > 0;
   }
 
   clear() {
-    if (this.mesh) this.mesh.visible = false;
+    this.group.visible = false;
     this.key = '';
   }
 
   show() {
-    if (this.mesh) this.mesh.visible = true;
+    if (this.pool.length) this.group.visible = true;
   }
 }
 
@@ -900,7 +1023,7 @@ window.addEventListener('error', (e) => {
 });
 
 boot().then(() => {
-  minimap = new Minimap(document.getElementById('minimap'), network);
+  /* ready */
 }).catch((err) => {
   console.error(err);
   const el = document.getElementById('error');

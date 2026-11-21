@@ -133,8 +133,8 @@ export class TaxiService {
     this.meterDistance = 0;
     this.fare = 0;
     this.harshness = 0;
-    const route = this.ctx.nav.route(
-      this.player.x, this.player.z,
+    const route = this.ctx.nav.routeAhead(
+      this.player.x, this.player.z, this.player.heading,
       this.job.pickup.x, this.job.pickup.z
     );
     this.route = route;
@@ -181,7 +181,7 @@ export class TaxiService {
 
     if (this.state === 'toPickup') {
       const d = Math.hypot(this.job.pickup.x - p.x, this.job.pickup.z - p.z);
-      if (this.route) this.route = this.ctx.nav.route(p.x, p.z, this.job.pickup.x, this.job.pickup.z);
+      if (this.route) this.route = this.ctx.nav.routeAhead(p.x, p.z, p.heading, this.job.pickup.x, this.job.pickup.z);
       if (d < 8 && p.speed < 2.5) {
         this.state = 'boarding';
         this.timer = 1.8;
@@ -197,7 +197,7 @@ export class TaxiService {
         this.state = 'toDrop';
         this.meterDistance = 0;
         this.marker.position.set(this.job.dest.x, 0, this.job.dest.z);
-        const route = this.ctx.nav.route(p.x, p.z, this.job.dest.x, this.job.dest.z);
+        const route = this.ctx.nav.routeAhead(p.x, p.z, p.heading, this.job.dest.x, this.job.dest.z);
         this.route = route;
         this.ctx.hud.setMission(
           this.job.kind.label,
@@ -216,7 +216,7 @@ export class TaxiService {
         this.routeTimer = (this.routeTimer || 0) + dt;
         if (this.routeTimer > 1.2) {
           this.routeTimer = 0;
-          const r = this.ctx.nav.route(p.x, p.z, this.job.dest.x, this.job.dest.z);
+          const r = this.ctx.nav.routeAhead(p.x, p.z, p.heading, this.job.dest.x, this.job.dest.z);
           if (r) this.route = r;
         }
       }

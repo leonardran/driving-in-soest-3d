@@ -12,12 +12,15 @@ export class Vehicle {
     this.typeId = opts.type || 'taxi';
     this.spec = CAR_TYPES[this.typeId] || CAR_TYPES.taxi;
     const model = makeCarModel(this.typeId, this.spec, opts.color || this.spec.color, {
-      liveWheels: opts.liveWheels !== false
+      liveWheels: opts.liveWheels !== false,
+      noShadow: !!opts.noShadow
     });
     this.model = model;
     this.group = model.group;
     this.profile = model.profile;
     this.radius = model.group.userData.radius;
+    // circle used when two cars touch (much tighter than the building radius)
+    this.bodyRadius = model.profile.w * 0.55;
 
     this.x = opts.x || 0;
     this.z = opts.z || 0;
@@ -42,9 +45,9 @@ export class Vehicle {
 
     for (const w of model.wheels) w.rotation.order = 'YXZ';
 
-    // headlight pool, only used when it is dark
+    // headlights: a soft pool on the road ahead plus a real spotlight
     if (opts.headlights !== false) {
-      const geo = new THREE.PlaneGeometry(9, 22);
+      const geo = new THREE.PlaneGeometry(9, 24);
       geo.rotateX(-Math.PI / 2);
       const mat = new THREE.MeshBasicMaterial({
         map: TEX.headlights(),
@@ -54,10 +57,20 @@ export class Vehicle {
         blending: THREE.AdditiveBlending
       });
       const pool = new THREE.Mesh(geo, mat);
-      pool.position.set(0, 0.06, model.profile.l * 0.5 + 9);
-      pool.renderOrder = 3;
+      // the texture fades along +v; the plane's +Z must point away from the car
+      pool.rotation.y = Math.PI;
+      pool.position.set(0, 0.055, model.profile.l * 0.5 + 11);
+      pool.renderOrder = 4;
       this.group.add(pool);
       this.pool = pool;
+
+      if (opts.spot) {
+        const spot = new THREE.SpotLight(0xfff2d6, 0, 52, 0.62, 0.62, 1.2);
+        spot.position.set(0, 0.72, model.profile.l * 0.5);
+        spot.target.position.set(0, -0.6, model.profile.l * 0.5 + 20);
+        this.group.add(spot, spot.target);
+        this.spot = spot;
+      }
     }
   }
 
@@ -201,7 +214,8 @@ export class Vehicle {
 
   setHeadlights(on, strength = 1) {
     this.headlightsOn = on;
-    if (this.pool) this.pool.material.opacity = on ? 0.85 * strength : 0;
+    if (this.pool) this.pool.material.opacity = on ? 0.5 * strength : 0;
+    if (this.spot) this.spot.intensity = on ? 26 * strength : 0;
   }
 
   dispose(scene) {

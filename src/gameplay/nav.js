@@ -1,6 +1,7 @@
 // Route finding over the street graph, plus the turn-by-turn instructions.
 
 import { clamp } from '../core/util.js';
+import { projectOnEdge } from '../world/network.js';
 
 export class Navigator {
   constructor(network) {
@@ -97,6 +98,31 @@ export class Navigator {
 
   heuristic(a, b) {
     return Math.hypot(a.x - b.x, a.z - b.z);
+  }
+
+  /**
+   * Route from the junction the driver is heading towards, so the guidance
+   * always points forward instead of back to the crossing behind the car.
+   */
+  routeAhead(ax, az, heading, bx, bz) {
+    const near = this.net.nearestEdge(ax, az);
+    if (!near.edge || near.dist > 40) return this.route(ax, az, bx, bz);
+    const e = near.edge;
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    const along = e.dx * fx + e.dz * fz;
+    const target = along >= 0 ? this.net.nodes[e.b] : this.net.nodes[e.a];
+    if (!target) return this.route(ax, az, bx, bz);
+    const proj = projectOnEdge(e, ax, az);
+    const rest = this.route(target.x, target.z, bx, bz);
+    if (!rest) return this.route(ax, az, bx, bz);
+    const points = [{ x: proj.x, z: proj.z }, { x: target.x, z: target.z }];
+    for (let i = 1; i < rest.points.length; i++) points.push(rest.points[i]);
+    let distance = 0;
+    for (let i = 1; i < points.length; i++) {
+      distance += Math.hypot(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z);
+    }
+    return { points, distance };
   }
 
   /**

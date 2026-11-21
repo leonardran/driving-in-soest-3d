@@ -1,8 +1,8 @@
 // Audio: the four radio stations (real tracks from the original game) plus a
 // fully procedural engine, tyres, sirens, horn and UI sounds.
 
-import { RADIO_STATIONS, RADIO_TALK } from '../world/data.js';
-import { clamp } from '../core/util.js';
+import { RADIO_STATIONS, RADIO_TALK, RADIO_JINGLES } from '../world/data.js';
+import { clamp, pick } from '../core/util.js';
 
 export class AudioEngine {
   constructor() {
@@ -44,11 +44,21 @@ export class AudioEngine {
 
     // radio element
     this.radio = new Audio();
-    this.radio.loop = true;
-    this.radio.preload = 'none';
+    this.radio.loop = false;
+    this.radio.preload = 'auto';
     this.radio.crossOrigin = 'anonymous';
     this.radioSource = this.ctx.createMediaElementSource(this.radio);
     this.radioSource.connect(this.musicGain);
+    this.radio.addEventListener('ended', () => this.onTrackEnded());
+    this.radio.addEventListener('error', () => {
+      // a missing file must not silence the station
+      if (this.radioIndex >= 0) setTimeout(() => this.nextInPlaylist(), 400);
+    });
+
+    // station programming state
+    this.playlistPos = 0;
+    this.stationOrder = [];
+    this.lastItem = '';
   }
 
   buildNoise() {
@@ -162,6 +172,58 @@ export class AudioEngine {
     this.sirenNodes.out.gain.setTargetAtTime(on ? clamp(volume, 0, 1) * 0.07 : 0, this.ctx.currentTime, 0.15);
   }
 
+  /**
+   * Build a shuffled running order for a station: music, jingles and talk
+   * segments interleaved so the station never repeats the same thing twice
+   * in a row.
+   */
+  buildStationOrder(index) {
+    const station = RADIO_STATIONS[index];
+    const music = station.playlist.filter((f) => f.indexOf('channel-') === 0);
+    const order = [];
+    const musicPool = music.length ? music.slice() : ['radio/channel-1.mp3'];
+    let mi = 0;
+    for (let round = 0; round < 3; round++) {
+      // a song
+      order.push(musicPool[mi % musicPool.length]);
+      mi++;
+      // then either a jingle or a presenter saying something
+      if (round % 2 === 0) order.push(pick(RADIO_JINGLES));
+      else order.push(pick(RADIO_TALK));
+      // and the station's own signature segment
+      const own = station.playlist.filter((f) => f.indexOf('channel-') !== 0);
+      if (own.length) order.push(own[round % own.length]);
+    }
+    // avoid an immediate repeat across station changes
+    if (order[0] === this.lastItem && order.length > 1) order.push(order.shift());
+    this.stationOrder = order;
+    this.playlistPos = 0;
+  }
+
+  playCurrent() {
+    if (this.radioIndex < 0) return;
+    if (!this.stationOrder.length) this.buildStationOrder(this.radioIndex);
+    const file = this.stationOrder[this.playlistPos % this.stationOrder.length];
+    this.lastItem = file;
+    this.radio.src = file;
+    this.radio.volume = 1;
+    const p = this.radio.play();
+    if (p && p.catch) p.catch(() => {});
+    this.musicGain.gain.setTargetAtTime(this.radioVolume, this.ctx.currentTime, 0.2);
+  }
+
+  nextInPlaylist() {
+    if (this.radioIndex < 0) return;
+    this.playlistPos = (this.playlistPos + 1) % Math.max(1, this.stationOrder.length);
+    if (this.playlistPos === 0) this.buildStationOrder(this.radioIndex);
+    this.playCurrent();
+  }
+
+  onTrackEnded() {
+    if (this.radioIndex < 0) return;
+    this.nextInPlaylist();
+  }
+
   playRadio(index) {
     if (!this.ready) return;
     if (index < 0 || index >= RADIO_STATIONS.length) {
@@ -170,16 +232,13 @@ export class AudioEngine {
     }
     if (this.radioIndex === index && !this.radio.paused) return;
     this.radioIndex = index;
-    const station = RADIO_STATIONS[index];
-    this.radio.src = station.file;
-    this.radio.volume = 1;
-    const p = this.radio.play();
-    if (p && p.catch) p.catch(() => {});
-    this.musicGain.gain.setTargetAtTime(this.radioVolume, this.ctx.currentTime, 0.2);
+    this.buildStationOrder(index);
+    this.playCurrent();
   }
 
   stopRadio() {
     this.radioIndex = -1;
+    this.stationOrder = [];
     if (this.radio) {
       this.radio.pause();
       this.radio.removeAttribute('src');
@@ -188,7 +247,7 @@ export class AudioEngine {
 
   nextRadio() {
     if (!this.ready) return -1;
-    const next = (this.radioIndex + 1) % (RADIO_STATIONS.length + 1) - 1;
+    const next = (this.radioIndex + 2) % (RADIO_STATIONS.length + 1) - 1;
     if (next < 0) this.stopRadio();
     else this.playRadio(next);
     return next;
@@ -196,10 +255,9 @@ export class AudioEngine {
 
   playTalk() {
     if (!this.ready) return;
-    const file = RADIO_TALK[(Math.random() * RADIO_TALK.length) | 0];
-    const a = new Audio(file);
-    a.volume = this.radioVolume * 0.9;
-    a.play().catch(() => {});
+    const file = pick(RADIO_TALK);
+    // drop a presenter segment in after the current song
+    this.stationOrder.splice(this.playlistPos + 1, 0, file);
   }
 
   setRadioVolume(v) {

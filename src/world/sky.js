@@ -36,12 +36,13 @@ const SKY_FRAG = /* glsl */ `
     col += uSunColor * pow(sd, 5.0) * 0.30;
     col += uSunColor * pow(sd, uSunSize) * 3.2;
 
-    // stars, only at night
-    if (uNight > 0.02 && d.y > 0.0) {
-      vec2 cell = floor(d.xz / max(d.y, 0.15) * 90.0);
+    // stars, only well after sunset
+    if (uNight > 0.22 && d.y > 0.0) {
+      vec2 cell = floor(d.xz / max(d.y, 0.15) * 130.0);
       float s = hash21(cell);
-      float star = step(0.9965, s) * (0.4 + 0.6 * hash21(cell + 7.7));
-      col += vec3(0.9, 0.94, 1.0) * star * uNight * smoothstep(0.0, 0.25, d.y) * 2.2;
+      float star = smoothstep(0.9975, 1.0, s) * (0.35 + 0.65 * hash21(cell + 7.7));
+      star *= 1.0 - smoothstep(0.55, 0.95, hash21(cell + 3.3));
+      col += vec3(0.92, 0.95, 1.0) * star * smoothstep(0.22, 0.6, uNight) * smoothstep(0.0, 0.3, d.y) * 1.5;
     }
 
     gl_FragColor = vec4(col, 1.0);

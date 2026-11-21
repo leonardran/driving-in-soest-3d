@@ -1,6 +1,6 @@
 // The in-game phone: map, radio, ride history, car select and settings.
 
-import { RADIO_STATIONS, CAR_TYPES } from '../world/data.js';
+import { RADIO_STATIONS, CAR_TYPES, POIS } from '../world/data.js';
 import { formatMoney, formatClock } from '../core/util.js';
 
 const APPS = [
@@ -101,28 +101,128 @@ export class Phone {
     const title = document.createElement('h3');
     title.textContent = 'Soest';
     this.body.appendChild(title);
+
+    const tools = document.createElement('div');
+    tools.className = 'phone-maptools';
+    tools.innerHTML =
+      '<button data-map="in" type="button">+</button>' +
+      '<button data-map="out" type="button">−</button>' +
+      '<button data-map="center" type="button">Ik</button>' +
+      '<button data-map="clear" type="button">Wis</button>';
+    this.body.appendChild(tools);
+
     const canvas = document.createElement('canvas');
-    canvas.width = 660;
-    canvas.height = 460;
+    canvas.width = 620;
+    canvas.height = 640;
     canvas.className = 'phone-map';
     this.body.appendChild(canvas);
     this.mapCanvas = canvas;
+    this.mapView = { zoom: 2.0, panX: 0, panZ: 0 };
     this.drawMap();
+    this.bindMap(canvas);
+
+    tools.querySelectorAll('[data-map]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const v = this.mapView;
+        const a = b.dataset.map;
+        if (a === 'in') v.zoom = Math.min(6, v.zoom * 1.45);
+        else if (a === 'out') v.zoom = Math.max(0.7, v.zoom / 1.45);
+        else if (a === 'center') { v.panX = 0; v.panZ = 0; }
+        else this.ctx.onWaypoint(null);
+        this.drawMap();
+      });
+    });
+
     const legend = document.createElement('p');
     legend.className = 'phone-note';
-    legend.textContent = `Schaal 1:4000 · ${Math.round(this.ctx.game.wallet || 0) ? '' : ''}tik op de kaart om te sluiten`;
+    legend.textContent = 'Sleep om te verschuiven, tik op de kaart om een waypoint te zetten.';
     this.body.appendChild(legend);
+
+    if (this.ctx.network) {
+      const list = document.createElement('div');
+      list.className = 'phone-poi-list';
+      for (const poi of POIS.slice(0, 14)) {
+        const b = document.createElement('button');
+        b.className = 'phone-poi';
+        b.textContent = poi.name;
+        b.addEventListener('click', () => {
+          this.ctx.onWaypoint({ x: poi.x, z: poi.z });
+        });
+        list.appendChild(b);
+      }
+      this.body.appendChild(list);
+    }
+  }
+
+  bindMap(canvas) {
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let moved = 0;
+    let startPan = null;
+
+    const toCanvas = (e) => {
+      const r = canvas.getBoundingClientRect();
+      return {
+        x: ((e.clientX - r.left) / r.width) * canvas.width,
+        y: ((e.clientY - r.top) / r.height) * canvas.height
+      };
+    };
+
+    canvas.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      moved = 0;
+      startX = e.clientX;
+      startY = e.clientY;
+      startPan = { x: this.mapView.panX, z: this.mapView.panZ };
+      canvas.setPointerCapture(e.pointerId);
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      moved = Math.max(moved, Math.hypot(dx, dy));
+      if (moved > 4) {
+        const state = { x: this.ctx.getPlayerX(), z: this.ctx.getPlayerZ() };
+        const a = this.ctx.minimap.canvasToWorld(canvas, 0, 0, state, {
+          zoom: this.mapView.zoom, panX: 0, panZ: 0
+        });
+        const b = this.ctx.minimap.canvasToWorld(canvas, canvas.width, 0, state, {
+          zoom: this.mapView.zoom, panX: 0, panZ: 0
+        });
+        const metresPerPx = (b.x - a.x) / canvas.width;
+        this.mapView.panX = startPan.x - dx * metresPerPx;
+        this.mapView.panZ = startPan.z - dy * metresPerPx;
+        this.drawMap();
+      }
+    });
+
+    const finish = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      if (moved > 6) return;
+      const p = toCanvas(e);
+      const state = { x: this.ctx.getPlayerX(), z: this.ctx.getPlayerZ() };
+      const wp = this.ctx.minimap.canvasToWorld(canvas, p.x, p.y, state, this.mapView);
+      this.ctx.onWaypoint(wp);
+      this.drawMap();
+    };
+    canvas.addEventListener('pointerup', finish);
+    canvas.addEventListener('pointercancel', () => { dragging = false; });
   }
 
   drawMap() {
     if (!this.mapCanvas || !this.ctx.minimap) return;
+    const game = this.ctx.game;
     this.ctx.minimap.drawFull(this.mapCanvas, {
       x: this.ctx.getPlayerX(),
       z: this.ctx.getPlayerZ(),
       heading: this.ctx.getPlayerHeading(),
-      route: this.ctx.taxi ? this.ctx.taxi.route : null,
-      target: this.ctx.taxi && this.ctx.taxi.target
-    });
+      route: (this.ctx.taxi && this.ctx.taxi.route) || game.waypointRoute || null,
+      target: this.ctx.taxi && this.ctx.taxi.target,
+      waypoint: game.waypoint || null
+    }, this.mapView);
   }
 
   renderRadio() {
@@ -145,6 +245,12 @@ export class Phone {
       });
       this.body.appendChild(row);
     }
+    const now = document.createElement('p');
+    now.className = 'phone-note';
+    now.textContent = audio.radioIndex >= 0
+      ? 'Nu op de radio: muziek, jingles en de presentator wisselen elkaar af.'
+      : 'Kies een zender om te beginnen.';
+    this.body.appendChild(now);
     const off = document.createElement('button');
     off.className = 'phone-row';
     off.innerHTML = '<span class="phone-dot" style="background:#4a5560"></span><span class="phone-row-copy"><b>Radio uit</b><small>Rust in de auto</small></span><span class="phone-row-action">Stop</span>';
@@ -243,7 +349,7 @@ export class Phone {
     if (this.timeEl) this.timeEl.textContent = formatClock(this.ctx.game.time);
     if (this.visible && this.openApp === 'map') {
       this.mapTimer = (this.mapTimer || 0) + 1;
-      if (this.mapTimer % 12 === 0) this.drawMap();
+      if (this.mapTimer % 10 === 0) this.drawMap();
     }
   }
 }

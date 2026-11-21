@@ -6,7 +6,7 @@ import { TRAFFIC_COLORS } from '../world/data.js';
 import { clamp, pick, rand } from '../core/util.js';
 
 const TYPE_IDS = ['compact', 'estate', 'compact', 'estate', 'van', 'sport', 'classic', 'compact', 'estate'];
-const laneOffset = (width) => Math.max(1.7, width * 0.23);
+const laneOffset = (width) => Math.max(1.25, (width * 0.5 - 2.6) * 0.55);
 
 export class TrafficSystem {
   constructor(scene, network, collision, count = 22) {
@@ -205,22 +205,23 @@ export class TrafficSystem {
 }
 
 /** Cars parked along the kerbs: they add life and they block the road. */
-export function spawnParkedCars(scene, network, collision, count = 44) {
+export function spawnParkedCars(scene, network, collision, count = 150) {
   const out = [];
-  const edges = network.edges.filter((e) => e.len > 34 && e.width < 14);
+  const edges = network.edges.filter((e) => e.len > 30 && e.width < 15);
   const types = ['compact', 'estate', 'van', 'classic', 'compact', 'estate', 'sport'];
+  void collision;
   for (let i = 0; i < count; i++) {
     const edge = pick(edges);
     if (!edge) continue;
     const side = Math.random() < 0.5 ? 1 : -1;
-    const s = rand(8, Math.max(9, edge.len - 8));
-    const off = (edge.width * 0.5 - 1.15) * side;
+    const s = rand(6, Math.max(7, edge.len - 6));
+    const off = (edge.width * 0.5 - 0.95) * side;
     const x = edge.ax + edge.dx * s + edge.dz * off;
     const z = edge.az + edge.dz * s - edge.dx * off;
     const heading = Math.atan2(edge.dx * side, edge.dz * side);
     let blocked = false;
     for (const other of out) {
-      if (Math.hypot(other.x - x, other.z - z) < 7) { blocked = true; break; }
+      if (Math.hypot(other.x - x, other.z - z) < 6.5) { blocked = true; break; }
     }
     if (blocked) continue;
     const v = new Vehicle({
@@ -229,11 +230,11 @@ export function spawnParkedCars(scene, network, collision, count = 44) {
       x,
       z,
       heading,
-      liveWheels: false
+      liveWheels: false,
+      noShadow: true
     });
     scene.add(v.group);
     out.push(v);
-    if (collision) collision.addBox(x, z, v.profile.w + 0.15, v.profile.l + 0.1, heading);
   }
   return out;
 }

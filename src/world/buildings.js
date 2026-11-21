@@ -120,7 +120,7 @@ export function createBuildingMaterial() {
         if (glass > 0.001) {
           float h = hash(winCell + vRand * 19.3);
           float lit = step(0.48, h);
-          vec3 winDay = mix(vec3(0.035, 0.05, 0.065), uSkyColor * 0.42, 0.65);
+          vec3 winDay = mix(vec3(0.028, 0.038, 0.05), uSkyColor * 0.2, 0.55);
           vec3 winNight = uWindowLight * (0.45 + h * 0.85);
           vec3 winC = mix(winDay, winNight, uNight * lit);
           vec3 winLitOnly = winNight * (uNight * lit);
@@ -158,6 +158,8 @@ function makeHouseGeom() {
   boxWalls(b, 0.7);
   b.setPart(1);
   b.roof(0, 0.7, 0, 1.02, 0.3, 1.04, [1, 1, 1], { ry: Math.PI / 2 });
+  // chimney
+  b.box(0.3, 0.86, -0.18, 0.075, 0.2, 0.075, [1, 1, 1]);
   return b.build();
 }
 
@@ -166,9 +168,7 @@ function makeVillaGeom() {
   boxWalls(b, 0.62);
   b.setPart(1);
   b.roof(0, 0.62, 0, 1.06, 0.38, 1.08, [1, 1, 1], { ry: Math.PI / 2 });
-  // a small side extension
-  b.setPart(0);
-  b.quad([-0.5, 0, 0.5], [0.5, 0, 0.5], [0.5, 0.35, 0.5], [-0.5, 0.35, 0.5], [1, 1, 1]);
+  b.box(-0.3, 0.84, 0.2, 0.07, 0.22, 0.07, [1, 1, 1]);
   return b.build();
 }
 
@@ -201,16 +201,17 @@ const SHED_COLORS = ['#8f9298', '#6f7378', '#a8a49a', '#7d8580', '#9c9a90'];
 export function buildBuildings(network, material) {
   const rng = makeRng(20240117);
   const buckets = { house: [], villa: [], block: [], shed: [] };
+  const hedges = [];
 
   const archetypeFor = (zone, r) => {
     if (zone && (zone.kind === 'industrial' || zone.kind === 'sports')) return 'shed';
     if (zone && (zone.kind === 'mall' || zone.kind === 'casino' || zone.kind === 'cinema' ||
                  zone.kind === 'hotel' || zone.kind === 'station' || zone.kind === 'fastfood' ||
                  zone.kind === 'carwash' || zone.kind === 'school')) return 'block';
-    if (!zone) return r() < 0.55 ? 'villa' : 'shed';
-    if (zone.kind === 'suburb' || zone.kind === 'residential') return r() < 0.42 ? 'house' : 'villa';
+    if (!zone) return r() < 0.62 ? 'house' : 'villa';
+    if (zone.kind === 'suburb' || zone.kind === 'residential') return r() < 0.55 ? 'house' : 'villa';
     if (zone.kind === 'landmark') return 'house';
-    return r() < 0.5 ? 'house' : 'block';
+    return r() < 0.45 ? 'house' : 'block';
   };
 
   const SIDEWALK = 2.4;
@@ -227,23 +228,23 @@ export function buildBuildings(network, material) {
     for (const side of [1, -1]) {
       const nx = edge.dz * side;
       const nz = -edge.dx * side;
-      let t = rng.range(1, 4);
+      let t = rng.range(0.5, 2.5);
       while (t < usable - 4) {
         const probeX = edge.ax + edge.dx * (insetA + t) + nx * (edge.width * 0.5 + SIDEWALK);
         const probeZ = edge.az + edge.dz * (insetA + t) + nz * (edge.width * 0.5 + SIDEWALK);
         const zone = zoneAtMap(mx(probeX), mz(probeZ));
-        const buildHere = zone ? isBuildableZone(zone) : rng.chance(0.3);
+        const buildHere = zone ? isBuildableZone(zone) : rng.chance(0.62);
         if (!buildHere) {
-          t += rng.range(14, 40);
+          t += rng.range(10, 30);
           continue;
         }
 
         const arch = archetypeFor(zone, rng);
         let w; let d; let h; let garden;
         if (arch === 'house') {
-          w = rng.range(6.5, 10.5); d = rng.range(8, 11); h = rng.range(5.6, 8.4); garden = rng.range(0.6, 2.2);
+          w = rng.range(6.2, 10); d = rng.range(8, 11); h = rng.range(5.8, 8.6); garden = rng.range(0.5, 1.8);
         } else if (arch === 'villa') {
-          w = rng.range(9, 15); d = rng.range(8, 12); h = rng.range(5.4, 7.6); garden = rng.range(3, 7);
+          w = rng.range(9, 14.5); d = rng.range(8, 12); h = rng.range(5.4, 7.8); garden = rng.range(2.2, 5);
         } else if (arch === 'block') {
           w = rng.range(14, 26); d = rng.range(12, 20); h = rng.range(9, 24); garden = rng.range(0.4, 2.5);
         } else {
@@ -270,7 +271,20 @@ export function buildBuildings(network, material) {
           rand: rng()
         });
 
-        t += w + rng.range(arch === 'villa' ? 2 : 0.6, arch === 'villa' ? 9 : 3.4);
+        // a low hedge or fence along the front garden
+        if ((arch === 'house' || arch === 'villa') && rng.chance(0.62)) {
+          const hedgeOff = edge.width * 0.5 + SIDEWALK + Math.max(0.5, garden * 0.5);
+          hedges.push({
+            x: edge.ax + edge.dx * mid + nx * hedgeOff,
+            z: edge.az + edge.dz * mid + nz * hedgeOff,
+            len: Math.max(3, w * rng.range(0.8, 1.05)),
+            rotY: Math.atan2(edge.dx, edge.dz),
+            h: rng.range(0.7, 1.5),
+            tint: rng()
+          });
+        }
+
+        t += w + rng.range(arch === 'villa' ? 1.5 : 0.35, arch === 'villa' ? 6 : 2.4);
       }
     }
   }
@@ -327,5 +341,5 @@ export function buildBuildings(network, material) {
   }
 
   const total = Object.values(buckets).reduce((n, l) => n + l.length, 0);
-  return { group, meshes, total, boxes };
+  return { group, meshes, total, boxes, hedges };
 }

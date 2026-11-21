@@ -14,12 +14,12 @@ const MAIN_H = new Set([1070]);
 
 function widthFor(axis, fixed, a, b, name) {
   const span = Math.abs(b - a);
-  if (name && name.indexOf('A28') === 0) return 17.6; // motorway
-  if (name && name.indexOf('Eemrand-Oost') === 0) return 9.0;
-  if ((axis === 'v' && MAIN_V.has(fixed)) || (axis === 'h' && MAIN_H.has(fixed))) return 12.4;
-  if (span > 520) return 10.2;
-  if (span > 260) return 9.0;
-  return 7.6;
+  if (name && name.indexOf('A28') === 0) return 16.0; // motorway
+  if (name && name.indexOf('Eemrand-Oost') === 0) return 8.0;
+  if ((axis === 'v' && MAIN_V.has(fixed)) || (axis === 'h' && MAIN_H.has(fixed))) return 9.8;
+  if (span > 520) return 8.6;
+  if (span > 260) return 7.8;
+  return 6.8;
 }
 
 export function buildNetwork() {
