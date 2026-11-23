@@ -6,6 +6,22 @@
 <meta name="theme-color" content="#0a1016" />
 <title>Driving in Soest</title>
 <link rel="stylesheet" href="./src/styles/main.css" />
+<script>
+  // Reload once when a new build is deployed. Without this a browser can keep
+  // running a cached copy of the game indefinitely — which is how an old build
+  // with the radio's talk segments kept playing after they were removed.
+  (function () {
+    var BUILD = '2024-radio-music-only';
+    try {
+      if (localStorage.getItem('soest.build') !== BUILD) {
+        localStorage.setItem('soest.build', BUILD);
+        var u = new URL(location.href);
+        u.searchParams.set('b', BUILD);
+        location.replace(u.toString());
+      }
+    } catch (e) {}
+  })();
+</script>
 </head>
 <body>
   <div id="app">
@@ -98,6 +114,9 @@
         </div>
       </div>
     </div>
+
+    <!-- pop-up adverts (EuroClix) -->
+    <div id="adPopups" class="ad-popups"></div>
 
     <div id="phone" class="hidden">
       <div class="phone-frame">

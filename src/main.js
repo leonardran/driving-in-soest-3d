@@ -9,6 +9,7 @@ import { buildBuildings, createBuildingMaterial } from './world/buildings.js';
 import { buildLandmarks } from './world/landmarks.js';
 import { buildProps } from './world/props.js';
 import { TEX } from './world/textures.js';
+import { buildAds } from './world/ads.js';
 import { createSky } from './world/sky.js';
 import { CollisionWorld } from './core/collision.js';
 import { GeomBuilder, vcMaterial } from './core/geom.js';
@@ -23,6 +24,7 @@ import { Hud } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { AudioEngine } from './ui/audio.js';
 import { Phone } from './ui/phone.js';
+import { AdPopups } from './ui/popups.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 14));
 
@@ -35,6 +37,7 @@ const game = {
   time: 17.4,
   cycle: true,
   onFoot: false,
+  ads: true,
   money: 0,
   rides: 0
 };
@@ -70,6 +73,8 @@ let taxi;
 let playerVehicle;
 let foot;
 let ribbon;
+let ads;
+let popups;
 let keys = {};
 // held buttons from the on-screen pad, merged with the keyboard
 const touch = { gas: false, brake: false, left: false, right: false };
@@ -140,6 +145,10 @@ async function boot() {
   const props = buildProps(network, buildings, collision);
   scene.add(props.group);
 
+  // EuroClix hoardings along the streets
+  ads = buildAds(network, collision, buildings.boxes);
+  scene.add(ads.group);
+
     setProgress(0.94, 'Verkeer en mensen…');
   await tick();
   nav = new Navigator(network);
@@ -169,8 +178,19 @@ async function boot() {
     getPlayerZ: () => (game.onFoot && foot ? foot.z : playerVehicle ? playerVehicle.z : 0),
     getPlayerHeading: () => (game.onFoot && foot ? foot.heading : playerVehicle ? playerVehicle.heading : 0),
     onCarSelect: (id) => switchCar(id),
-    onWaypoint: (wp) => setWaypoint(wp)
+    onWaypoint: (wp) => setWaypoint(wp),
+    popups: null
   });
+
+  // Adverts: one card at a time in the corner, off in the phone's options.
+  popups = new AdPopups({
+    host: document.getElementById('adPopups'),
+    wallet,
+    hud,
+    audio,
+    enabled: game.ads !== false
+  });
+  phone.ctx.popups = popups;
 
   setProgress(1, 'Klaar');
   await tick();
@@ -639,6 +659,10 @@ function step(dt) {
 
   updateCamera(dt);
   updateMinimap();
+
+  // adverts: the boards light up at night, the pop-ups keep their own clock
+  if (ads) ads.update(night);
+  if (popups) popups.update(dt);
 
   if (Math.random() < dt * 0.06) save();
 }

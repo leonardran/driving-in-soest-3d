@@ -1282,3 +1282,162 @@ body {
     bottom: 152px;
   }
 }
+
+/* ---------- pop-up adverts ---------- */
+
+.ad-popups {
+  position: fixed;
+  right: 18px;
+  bottom: 118px;
+  z-index: 36;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.ad-pop {
+  width: 306px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f7f5ef;
+  color: #14181d;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(14px) scale(0.97);
+  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.ad-pop.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.ad-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 10px;
+  background: linear-gradient(#f2efe7, #e6e2d8);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.ad-pop-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.ad-pop-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.ad-pop-url {
+  flex: 1;
+  font: 600 11px/1 var(--font);
+  color: #5b6470;
+  letter-spacing: 0.01em;
+}
+
+.ad-pop-close {
+  border: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: transparent;
+  color: #4a525c;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ad-pop-close:hover {
+  background: rgba(0, 0, 0, 0.09);
+  color: #14181d;
+}
+
+.ad-pop-body {
+  position: relative;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ad-pop-logo {
+  width: 132px;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+
+.ad-pop-title {
+  font: 800 15px/1.25 var(--font);
+  letter-spacing: -0.01em;
+}
+
+.ad-pop-text {
+  margin: 0;
+  font: 500 12.5px/1.45 var(--font);
+  color: #4a525c;
+}
+
+.ad-pop-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.ad-pop-claim {
+  flex: 1;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #e25d04;
+  color: #fff;
+  font: 800 12.5px/1 var(--font);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.ad-pop-claim:hover {
+  background: #c95203;
+}
+
+.ad-pop-skip {
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: transparent;
+  color: #4a525c;
+  font: 700 12px/1 var(--font);
+  cursor: pointer;
+}
+
+.ad-pop-skip:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.ad-pop-ad {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font: 800 8px/1 var(--font);
+  letter-spacing: 0.14em;
+  color: rgba(0, 0, 0, 0.34);
+}
+
+@media (max-width: 720px) {
+  .ad-popups {
+    right: 10px;
+    bottom: 150px;
+  }
+  .ad-pop {
+    width: min(306px, calc(100vw - 20px));
+  }
+}

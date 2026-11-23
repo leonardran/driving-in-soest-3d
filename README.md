@@ -56,5 +56,5 @@ here and it is served straight from disk.
 
 ## Credits
 
-Original 2D game, its radio audio and the map of Soest: **leonardran**.
+Original 2D game and the map of Soest: **leonardran**.
 3D remake: a fan project. Built with [Three.js](https://threejs.org/).

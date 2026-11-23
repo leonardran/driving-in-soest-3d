@@ -1,6 +1,7 @@
 // Audio: the four radio stations, played by a small generative band (see
-// music.js) with the original game's jingles and presenter between tracks, plus
-// a fully procedural engine, tyres, sirens, horn and UI sounds.
+// music.js), plus a fully procedural engine, tyres, sirens, horn and UI sounds.
+// Nothing on the radio is recorded: there are no jingles and no presenter, so a
+// station is music from sign-on to sign-off.
 
 import { RADIO_STATIONS } from '../world/data.js';
 import { clamp } from '../core/util.js';
@@ -165,11 +166,7 @@ export class AudioEngine {
     this.sirenNodes.out.gain.setTargetAtTime(on ? clamp(volume, 0, 1) * 0.07 : 0, this.ctx.currentTime, 0.15);
   }
 
-  /**
-   * A station is a band that plays live, with a jingle or a bit of presenter
-   * talk dropped in every minute or two, which is how the original game's
-   * radio felt.
-   */
+  /** A station is a band that plays live: music only, no talk. */
   stationFor(index) {
     const station = RADIO_STATIONS[index];
     const music = MUSIC_STATIONS[station.id] || MUSIC_STATIONS.soestfm;

@@ -249,34 +249,16 @@ export const ANCHORS = {
 };
 
 // --- radio ---------------------------------------------------------------
+//
+// A station is a name and a colour; its music is generated live in ui/music.js
+// (keyed by the id below), and nothing is loaded from disk. The station ids are
+// the keys of MUSIC_STATIONS, so changing one means changing both.
 
 export const RADIO_STATIONS = [
-  {
-    id: 'soestfm', name: 'Soest FM', genre: 'Warme popmuziek', color: '#f4c74f',
-    playlist: ['radio/channel-1.mp3', 'radio/intro-1.mp3', 'radio/talk-1.mp3', 'radio/intro-4.mp3', 'radio/talk-5.mp3']
-  },
-  {
-    id: 'duinen', name: 'Duinen Radio', genre: 'Chill & akoestisch', color: '#8fd0a8',
-    playlist: ['radio/channel-2.mp3', 'radio/intro-2.mp3', 'radio/talk-2.mp3', 'radio/intro-6.mp3', 'radio/talk-6.mp3']
-  },
-  {
-    id: 'eemland', name: 'Eemland Hits', genre: 'Pop van nu', color: '#7ab8f5',
-    playlist: ['radio/channel-3.mp3', 'radio/intro-3.mp3', 'radio/talk-3.mp3', 'radio/intro-5.mp3', 'radio/talk-7.mp3']
-  },
-  {
-    id: 'nachtrit', name: 'Nachtrit Radio', genre: 'Synth & neon', color: '#c39cf0',
-    playlist: ['radio/channel-4.mp3', 'radio/intro-4.mp3', 'radio/talk-4.mp3', 'radio/intro-1.mp3', 'radio/talk-8.mp3']
-  }
-];
-
-export const RADIO_TALK = [
-  'radio/talk-1.mp3', 'radio/talk-2.mp3', 'radio/talk-3.mp3', 'radio/talk-4.mp3',
-  'radio/talk-5.mp3', 'radio/talk-6.mp3', 'radio/talk-7.mp3', 'radio/talk-8.mp3'
-];
-
-export const RADIO_JINGLES = [
-  'radio/intro-1.mp3', 'radio/intro-2.mp3', 'radio/intro-3.mp3',
-  'radio/intro-4.mp3', 'radio/intro-5.mp3', 'radio/intro-6.mp3'
+  { id: 'soestfm', name: 'Soest FM', genre: 'Warme popmuziek', color: '#f4c74f' },
+  { id: 'duinen', name: 'Duinen Radio', genre: 'Chill & akoestisch', color: '#8fd0a8' },
+  { id: 'eemland', name: 'Eemland Hits', genre: 'Pop van nu', color: '#7ab8f5' },
+  { id: 'nachtrit', name: 'Nachtrit Radio', genre: 'Synth & neon', color: '#c39cf0' }
 ];
 
 // --- cars ----------------------------------------------------------------

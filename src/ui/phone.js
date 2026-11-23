@@ -344,6 +344,18 @@ export class Phone {
       this.render('settings');
     });
     this.body.appendChild(far);
+
+    // adverts on or off (the boards stay; the pop-ups stop)
+    const adsOn = g.ads !== false;
+    const adsRow = document.createElement('button');
+    adsRow.className = 'phone-row';
+    adsRow.innerHTML = `<span class="phone-row-copy"><b>Advertenties</b><small>Pop-ups van EuroClix</small></span><span class="phone-row-action">${adsOn ? 'Aan' : 'Uit'}</span>`;
+    adsRow.addEventListener('click', () => {
+      g.ads = !adsOn;
+      if (this.ctx.popups) this.ctx.popups.setEnabled(g.ads);
+      this.render('settings');
+    });
+    this.body.appendChild(adsRow);
   }
 
   update() {
