@@ -51,8 +51,8 @@ here and it is served straight from disk.
 - **Time** — a full day/night cycle: sun path, sky gradient, stars, lamp glow,
   lit windows and headlights.
 - **Sound** — procedural engine, tyre scrub, sirens, horn and UI sounds, plus
-  the radio stations from the original game with jingles and talk segments
-  between tracks.
+  four radio stations that play generated music: a band per station with its
+  own tempo, key and melody, rewritten every few bars so it does not repeat.
 
 ## Credits
 

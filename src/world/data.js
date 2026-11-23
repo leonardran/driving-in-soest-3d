@@ -252,7 +252,7 @@ export const ANCHORS = {
 
 export const RADIO_STATIONS = [
   {
-    id: 'soestfm', name: 'Soest FM', genre: 'Lokaal nieuws & hits', color: '#f4c74f',
+    id: 'soestfm', name: 'Soest FM', genre: 'Warme popmuziek', color: '#f4c74f',
     playlist: ['radio/channel-1.mp3', 'radio/intro-1.mp3', 'radio/talk-1.mp3', 'radio/intro-4.mp3', 'radio/talk-5.mp3']
   },
   {

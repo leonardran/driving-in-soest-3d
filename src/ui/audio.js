@@ -2,8 +2,8 @@
 // music.js) with the original game's jingles and presenter between tracks, plus
 // a fully procedural engine, tyres, sirens, horn and UI sounds.
 
-import { RADIO_STATIONS, RADIO_TALK, RADIO_JINGLES } from '../world/data.js';
-import { clamp, shuffle } from '../core/util.js';
+import { RADIO_STATIONS } from '../world/data.js';
+import { clamp } from '../core/util.js';
 import { RadioMusic, MUSIC_STATIONS } from './music.js';
 
 export class AudioEngine {
@@ -44,28 +44,13 @@ export class AudioEngine {
 
     // The music is generated live rather than looped from a file: the four
     // clips in radio/ are only 7-9 seconds each, and looping them is exactly
-    // what made every station repeat itself.
+    // what made every station repeat itself. Nothing else plays on the air:
+    // the recorded jingles and presenter segments are switched off, so a
+    // station is music from sign-on to sign-off.
     this.music = new RadioMusic(this.ctx, this.master);
     this.music.setVolume(this.radioVolume);
 
-    // Jingles and presenter segments are still real recordings. They are a
-    // plain media element: routing one through the Web Audio graph needs a
-    // media-element source node, and if that goes wrong it plays in silence.
-    this.radio = new Audio();
-    this.radio.loop = false;
-    this.radio.preload = 'auto';
-    this.radio.volume = this.radioVolume;
-    this.radio.addEventListener('ended', () => this.onTrackEnded());
-    this.radio.addEventListener('error', () => this.onRadioError());
-
-    // station state
     this.station = null;
-    this.breakCount = 0;
-    this.breakTimer = null;
-    this.playVoiceNow = false;
-    this.needsUnlock = false;
-    this.radioSkips = 0;
-    this.clipBag = [];
     this.ready = true;
   }
 
@@ -188,72 +173,22 @@ export class AudioEngine {
   stationFor(index) {
     const station = RADIO_STATIONS[index];
     const music = MUSIC_STATIONS[station.id] || MUSIC_STATIONS.soestfm;
-    // jingles first, then the presenter: both are short recorded stubs
-    const voices = RADIO_JINGLES.concat(RADIO_TALK);
-    return { music, voices, index };
+    return { music, index };
   }
 
-  /** Start the station's band. */
+  /** Start the station's band. Music only: no jingles, no presenter. */
   playBed() {
     const st = this.station;
     if (!st || this.radioIndex < 0) return;
-    this.playVoiceNow = false;
-    this.radio.pause();
     this.music.setStation(st.music);
     this.music.duck(false);
     this.music.start();
-    this.scheduleBreak();
-  }
-
-  /** One jingle or presenter segment from a shuffled bag, so none repeats early. */
-  nextClip() {
-    const st = this.station;
-    if (!st) return RADIO_JINGLES[0];
-    if (!this.clipBag || !this.clipBag.length) this.clipBag = shuffle(st.voices.slice());
-    return this.clipBag.pop();
-  }
-
-  /** Drop a jingle or a presenter segment over the music, then hand back. */
-  playBreak() {
-    const st = this.station;
-    if (!st || this.radioIndex < 0) return;
-    const file = this.nextClip();
-    this.breakCount++;
-    this.playVoiceNow = true;
-    this.music.duck(true);
-    this.radio.loop = false;
-    this.radio.src = file;
-    this.radio.load();
-    this.radio.volume = this.radioVolume;
-    const p = this.radio.play();
-    if (p && p.catch) {
-      p.catch(() => {
-        // the browser refused: keep the music going rather than sitting silent
-        this.playVoiceNow = false;
-        this.music.duck(false);
-      });
-    }
-  }
-
-  scheduleBreak() {
-    if (this.breakTimer) clearTimeout(this.breakTimer);
-    const delay = 48000 + Math.random() * 50000; // 48-98 s of music
-    this.breakTimer = setTimeout(() => {
-      this.breakTimer = null;
-      if (this.radioIndex >= 0) this.playBreak();
-    }, delay);
   }
 
   /** The piece the band is playing, for the phone and the HUD. */
   nowPlaying() {
     if (!this.ready || this.radioIndex < 0 || !this.music) return '';
     return this.music.nowPlaying();
-  }
-
-  playCurrent() {
-    if (this.radioIndex < 0) return;
-    if (this.playVoiceNow) this.playBed();
-    else this.playBreak();
   }
 
   /**
@@ -263,28 +198,7 @@ export class AudioEngine {
   unlock() {
     if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
     if (!this.ready || this.radioIndex < 0) return;
-    if (this.radio.paused && this.needsUnlock) {
-      this.needsUnlock = false;
-      const p = this.radio.play();
-      if (p && p.catch) p.catch(() => {});
-    }
-  }
-
-  onRadioError() {
-    if (this.radioIndex < 0) return;
-    // a missing file falls back to the bed, but never loops forever on errors
-    this.radioSkips = (this.radioSkips || 0) + 1;
-    if (this.radioSkips > 4) return;
-    setTimeout(() => {
-      if (this.radioIndex >= 0) this.playBed();
-    }, 300);
-  }
-
-  onTrackEnded() {
-    if (this.radioIndex < 0) return;
-    // a break has finished: hand back to the band
-    if (this.playVoiceNow) this.playBed();
-    else this.playBreak();
+    this.music.start();
   }
 
   playRadio(index) {
@@ -296,26 +210,13 @@ export class AudioEngine {
     if (this.radioIndex === index && this.music && this.music.playing) return;
     this.radioIndex = index;
     this.station = this.stationFor(index);
-    this.breakCount = 0;
-    this.radioSkips = 0;
-    this.clipBag = [];
     this.playBed();
   }
 
   stopRadio() {
     this.radioIndex = -1;
     this.station = null;
-    if (this.breakTimer) {
-      clearTimeout(this.breakTimer);
-      this.breakTimer = null;
-    }
     if (this.music) this.music.stop();
-    if (this.radio) {
-      this.radio.pause();
-      this.radio.loop = false;
-      this.radio.removeAttribute('src');
-      this.radio.load();
-    }
   }
 
   nextRadio() {
@@ -326,15 +227,8 @@ export class AudioEngine {
     return next;
   }
 
-  /** Put a presenter segment on straight away, e.g. from the phone. */
-  playTalk() {
-    if (!this.ready || this.radioIndex < 0) return;
-    this.playBreak();
-  }
-
   setRadioVolume(v) {
     this.radioVolume = v;
-    if (this.radio) this.radio.volume = v;
     if (this.music) this.music.setVolume(v);
   }
 
