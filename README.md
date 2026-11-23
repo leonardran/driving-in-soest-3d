@@ -50,6 +50,9 @@ here and it is served straight from disk.
   chevrons painted on the road, and a rotating radar minimap.
 - **Time** — a full day/night cycle: sun path, sky gradient, stars, lamp glow,
   lit windows and headlights.
+- **EuroClix adverts** — billboards along the verges, lit after dark, and a
+  corner pop-up you can claim for a small cash bonus, dismiss, or switch off
+  under the phone's options.
 - **Sound** — procedural engine, tyre scrub, sirens, horn and UI sounds, plus
   four radio stations that play generated music: a band per station with its
   own tempo, key and melody, rewritten every few bars so it does not repeat.

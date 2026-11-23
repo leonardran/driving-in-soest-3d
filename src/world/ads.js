@@ -76,18 +76,23 @@ function posterTexture() {
 }
 
 /**
- * True when (x, z) is clear of every building footprint. Boards are set back
- * off the kerb, which puts them in the front gardens — without this check one
- * lands inside a house now and then.
+ * True when (x, z) is clear of every building footprint, by at least `pad`
+ * metres. The test is a real rectangle test in the building's own frame: a
+ * circle of radius hypot(w, d) / 2 would reject the whole front garden and
+ * leave no room for a board anywhere on a built-up street.
  */
-function clearOfBuildings(boxes, x, z, pad = 4.5) {
+function clearOfBuildings(boxes, x, z, pad = 2.2) {
   if (!boxes) return true;
   for (const b of boxes) {
     const dx = x - b.x;
     const dz = z - b.z;
-    if (Math.abs(dx) > 26 || Math.abs(dz) > 26) continue;
-    const r = Math.hypot(b.w, b.d) * 0.5;
-    if (dx * dx + dz * dz < (r + pad) * (r + pad)) return false;
+    if (Math.abs(dx) > 30 || Math.abs(dz) > 30) continue;
+    // into the building's frame; its footprint is w along x, d along z
+    const cos = Math.cos(-b.rotY);
+    const sin = Math.sin(-b.rotY);
+    const lx = Math.abs(dx * cos - dz * sin) - b.w * 0.5;
+    const lz = Math.abs(dx * sin + dz * cos) - b.d * 0.5;
+    if (lx < pad && lz < pad) return false;
   }
   return true;
 }
@@ -98,27 +103,35 @@ export function buildAds(network, collision, buildings) {
   group.name = 'ads';
 
   const spots = [];
-  // a board roughly every 120 m of the busier streets, set back off the kerb
+  const MAX = 120;
+  // A board every 90 m or so, on either verge. Each slot gets several tries at
+  // different positions and setbacks, because most of a residential street is
+  // taken up by front gardens and drives. Every street gets at most two, so
+  // the campaign is spread over the town instead of clustering on the first
+  // few roads the graph happens to list.
   for (const edge of network.edges) {
-    if (edge.len < 50 || edge.width > 15) continue;
-    const steps = Math.floor(edge.len / 120);
-    for (let i = 0; i < Math.max(1, steps); i++) {
-      if (!rng.chance(0.55)) continue;
-      const s = 30 + i * 120 + rng.range(0, 40);
-      if (s > edge.len - 20) continue;
-      const side = rng.chance(0.5) ? 1 : -1;
-      // far enough off the kerb to clear the pavement, then onto the verge
-      const off = edge.width * 0.5 + rng.range(4.4, 6.4);
-      const x = edge.ax + edge.dx * s + edge.dz * off * side;
-      const z = edge.az + edge.dz * s - edge.dx * off * side;
-      if (!clearOfBuildings(buildings, x, z)) continue;
-      // the poster's +Z faces the road
-      const nx = edge.dz * side;
-      const nz = -edge.dx * side;
-      spots.push({ x, z, rot: Math.atan2(-nx, -nz), big: rng.chance(0.3) });
-      if (spots.length >= 90) break;
+    if (edge.len < 40 || edge.width > 15) continue;
+    const slots = Math.min(2, Math.max(1, Math.floor(edge.len / 90)));
+    for (let i = 0; i < slots; i++) {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const span = Math.max(1, edge.len - 30);
+        const s = 15 + ((i + rng.range(0.1, 0.9)) / slots) * span;
+        if (s > edge.len - 8 || s < 6) continue;
+        const side = rng.chance(0.5) ? 1 : -1;
+        // clear of the pavement, out on the verge
+        const off = edge.width * 0.5 + rng.range(3.6, 7.5);
+        const x = edge.ax + edge.dx * s + edge.dz * off * side;
+        const z = edge.az + edge.dz * s - edge.dx * off * side;
+        if (!clearOfBuildings(buildings, x, z)) continue;
+        // the poster's +Z faces the road
+        const nx = edge.dz * side;
+        const nz = -edge.dx * side;
+        spots.push({ x, z, rot: Math.atan2(-nx, -nz), big: rng.chance(0.3) });
+        break; // this slot is filled
+      }
+      if (spots.length >= MAX) break;
     }
-    if (spots.length >= 90) break;
+    if (spots.length >= MAX) break;
   }
 
   if (!spots.length) return { group, update() {} };
