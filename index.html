@@ -36,6 +36,7 @@
           <div class="nav-body">
             <div class="nav-instruction" id="navInstruction">—</div>
             <div class="nav-detail"><span id="navDetail">—</span><b id="navDistance"></b></div>
+            <div class="nav-eta" id="navEta"></div>
             <div class="nav-progress"><i id="navProgress"></i></div>
           </div>
         </div>
@@ -84,6 +85,18 @@
           <path d="M10.5 18.5h3" />
         </svg>
       </button>
+
+      <!-- on-screen driving controls: work with touch and the mouse -->
+      <div class="drive-pad" id="drivePad">
+        <div class="pad-side pad-left">
+          <button type="button" class="pad-btn" data-drive="left" aria-label="Naar links sturen">◀</button>
+          <button type="button" class="pad-btn" data-drive="right" aria-label="Naar rechts sturen">▶</button>
+        </div>
+        <div class="pad-side pad-right">
+          <button type="button" class="pad-btn" data-drive="brake" aria-label="Remmen of achteruit">▼</button>
+          <button type="button" class="pad-btn" data-drive="gas" aria-label="Gas geven">▲</button>
+        </div>
+      </div>
     </div>
 
     <div id="phone" class="hidden">

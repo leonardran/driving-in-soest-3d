@@ -88,6 +88,34 @@ export function createSky(scene, buildingUniforms) {
 
   scene.fog = new THREE.FogExp2(0xbcd4e6, 0.0016);
 
+  // --- environment reflections --------------------------------------------
+  // A tiny sky dome plus a sun blob is rendered into a prefiltered cube map
+  // whenever the light changes. That is what stops car paint, glass and chrome
+  // from looking like flat plastic: they get the sky on top and a sun glint.
+  const envScene = new THREE.Scene();
+  const envDomeGeo = new THREE.SphereGeometry(9, 24, 16);
+  const envDome = new THREE.Mesh(
+    envDomeGeo,
+    new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })
+  );
+  envDome.frustumCulled = false;
+  envScene.add(envDome);
+
+  const envSun = new THREE.Mesh(
+    new THREE.SphereGeometry(0.85, 12, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  envSun.frustumCulled = false;
+  envScene.add(envSun);
+
+  const envCols = new Float32Array(envDomeGeo.attributes.position.count * 3);
+  envDomeGeo.setAttribute('color', new THREE.BufferAttribute(envCols, 3));
+
+  let envRenderer = null;
+  let envPMREM = null;
+  let envTarget = null;
+  let envKey = null;
+
   const state = {
     hours: 17.2,
     night: 0,
@@ -101,6 +129,47 @@ export function createSky(scene, buildingUniforms) {
 
   const cA = new THREE.Color();
   const cB = new THREE.Color();
+
+  function paintEnv() {
+    const pos = envDomeGeo.attributes.position;
+    const top = uniforms.uTop.value;
+    const bottom = uniforms.uBottom.value;
+    const ground = state.groundColor;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i) / 9;
+      const k = Math.pow(Math.max(0, Math.min(1, y * 0.9 + 0.14)), 0.7);
+      let r = bottom.r + (top.r - bottom.r) * k;
+      let g = bottom.g + (top.g - bottom.g) * k;
+      let b = bottom.b + (top.b - bottom.b) * k;
+      if (y < 0) {
+        const t = Math.min(1, -y * 2.6);
+        r += (ground.r * 0.6 - r) * t;
+        g += (ground.g * 0.6 - g) * t;
+        b += (ground.b * 0.6 - b) * t;
+      }
+      envCols[i * 3] = r;
+      envCols[i * 3 + 1] = g;
+      envCols[i * 3 + 2] = b;
+    }
+    envDomeGeo.attributes.color.needsUpdate = true;
+    envSun.position.copy(uniforms.uSunDir.value).multiplyScalar(8);
+    envSun.material.color.copy(state.sunColor).multiplyScalar(state.night > 0.55 ? 3 : 11);
+  }
+
+  function refreshEnv() {
+    if (!envRenderer) return;
+    if (!envPMREM) envPMREM = new THREE.PMREMGenerator(envRenderer);
+    paintEnv();
+    const next = envPMREM.fromScene(envScene, 0, 0.4, 30);
+    if (envTarget) envTarget.dispose();
+    envTarget = next;
+    scene.environment = next.texture;
+  }
+
+  function attachRenderer(renderer) {
+    envRenderer = renderer;
+    envKey = null;
+  }
 
   function lerpColor(out, a, b, t) {
     out.copy(a).lerp(b, t);
@@ -155,7 +224,7 @@ export function createSky(scene, buildingUniforms) {
     sun.intensity = lerp(0.1, 2.1, daylight);
     sun.position.copy(state.night > 0.55 ? state.sunDir.clone().multiplyScalar(-1) : state.sunDir).multiplyScalar(300);
     fill.intensity = lerp(0.22, 0.42, daylight);
-    hemi.intensity = lerp(0.34, 1.15, daylight);
+    hemi.intensity = lerp(0.3, 0.8, daylight);
     hemi.color.copy(cA);
     hemi.groundColor.copy(state.groundColor);
 
@@ -174,7 +243,16 @@ export function createSky(scene, buildingUniforms) {
       buildingUniforms.uFogColor.value.copy(scene.fog.color);
       buildingUniforms.uFogDensity.value = scene.fog.density;
     }
+
+    // the reflection cube map is only rebuilt when the light has moved enough
+    const key = Math.round(state.night * 16) * 100 + Math.round(dusk * 16);
+    if (key !== envKey) {
+      envKey = key;
+      refreshEnv();
+    }
+    // the sky reflection is brightest in the day; hemi carries the rest
+    scene.environmentIntensity = lerp(0.4, 0.75, daylight);
   }
 
-  return { sky, sun, hemi, fill, uniforms, state, update };
+  return { sky, sun, hemi, fill, uniforms, state, update, attachRenderer };
 }

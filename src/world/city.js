@@ -108,8 +108,9 @@ export function buildCity(network, buildingUniforms, opts = {}) {
     const waterGeo = lakeBuilder.build();
     const waterMat = new THREE.MeshStandardMaterial({
       color: 0x2c4c58,
-      roughness: 0.08,
-      metalness: 0.72,
+      roughness: 0.06,
+      metalness: 0.78,
+      envMapIntensity: 1.4,
       transparent: true,
       opacity: 0.94
     });
@@ -125,8 +126,9 @@ export function buildCity(network, buildingUniforms, opts = {}) {
   const roadMat = new THREE.MeshStandardMaterial({
     map: asphaltMap,
     color: 0xffffff,
-    roughness: 0.92,
-    metalness: 0.02
+    roughness: 0.86,
+    metalness: 0.04,
+    envMapIntensity: 0.6
   });
 
   const road = new GeomBuilder();
@@ -478,11 +480,13 @@ function placeLamps(network, rng) {
       const off = edge.width * 0.5 + 1.1;
       const x = edge.ax + edge.dx * t + edge.dz * off * side;
       const z = edge.az + edge.dz * t - edge.dx * off * side;
-      // the arm must point back over the road, so aim it at the kerb
+      // The arm points along the lamp's local +X, so aim that at the road:
+      // the outward kerb normal is (dz, -dx) * side, and (cos r, -sin r) is
+      // local +X in world. Solving gives atan2(-dx*side, -dz*side).
       out.push({
         x,
         z,
-        rot: Math.atan2(-edge.dz * side, edge.dx * side)
+        rot: Math.atan2(-edge.dx * side, -edge.dz * side)
       });
       if (out.length > 2400) return out;
     }
@@ -517,8 +521,10 @@ function buildLampMeshes(lamps) {
   const heads = new THREE.InstancedMesh(headGeom, headMat, n);
   heads.frustumCulled = false;
 
-  const glowGeom = new THREE.PlaneGeometry(20, 20);
+  const glowGeom = new THREE.PlaneGeometry(13, 13);
   glowGeom.rotateX(-Math.PI / 2);
+  // the pool hangs off the end of the arm, in the lamp's own space
+  glowGeom.translate(2.2, 0, 0);
   const glowMat = new THREE.MeshBasicMaterial({
     map: TEX.glow(),
     transparent: true,
@@ -546,8 +552,10 @@ function buildLampMeshes(lamps) {
     poles.setMatrixAt(i, m);
     arms.setMatrixAt(i, m);
     heads.setMatrixAt(i, m);
-    p.set(l.x + 2.2, 0.06, l.z);
-    m.compose(p, q, s);
+    // the glow geometry is already offset along the arm, so it takes the same
+    // transform as the pole — lifted just above the road, or the plane is
+    // buried under the asphalt and depth-culled
+    m.compose(p.set(l.x, 0.22, l.z), q, s);
     glow.setMatrixAt(i, m);
   }
   poles.instanceMatrix.needsUpdate = true;

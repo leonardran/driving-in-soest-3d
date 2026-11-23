@@ -1,6 +1,7 @@
 // All the DOM writing for the heads-up display.
 
 import { formatMoney, formatDistance, formatClock, clamp } from '../core/util.js';
+import { TURN_GLYPH } from '../gameplay/nav.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -16,6 +17,7 @@ export class Hud {
       navInstruction: $('navInstruction'),
       navDetail: $('navDetail'),
       navDistance: $('navDistance'),
+      navEta: $('navEta'),
       navProgress: $('navProgress'),
       navCard: $('navCard'),
       speed: $('speedValue'),
@@ -72,18 +74,32 @@ export class Hud {
     this.el.missionFare.style.opacity = fare ? '1' : '0';
   }
 
-  setNav(guidance, remaining) {
+  setNav(guidance, remaining, total, eta) {
     if (!guidance) {
       this.el.navCard.classList.add('hidden');
       return;
     }
     this.el.navCard.classList.remove('hidden');
     this.el.navInstruction.textContent = guidance.text || '';
-    this.el.navDetail.textContent = guidance.turn === 'arrive' ? 'Je bent er bijna' : 'Volg de blauwe lijn';
+    this.el.navArrow.textContent = TURN_GLYPH[guidance.turn] || '↑';
+    // under the instruction: how far to the junction, and where it takes you
+    let detail;
+    if (guidance.turn === 'arrive') detail = 'U bent er bijna';
+    else if (guidance.street) detail = formatDistance(guidance.distance) + ' · ' + guidance.street;
+    else if (guidance.distance > 3) detail = formatDistance(guidance.distance) + ' vooruit';
+    else detail = 'Volg de blauwe lijn';
+    this.el.navDetail.textContent = detail;
     this.el.navDistance.textContent = remaining != null ? formatDistance(remaining) : '';
-    const arrows = { left: '←', right: '→', straight: '↑', uturn: '⤺', arrive: '●' };
-    this.el.navArrow.textContent = arrows[guidance.turn] || '↑';
-    const p = clamp(1 - (remaining || 0) / 600, 0, 1);
+    if (this.el.navEta) {
+      // the row a navigation app puts under the turn: arrival, time, distance
+      if (eta && eta.minutes > 0) {
+        this.el.navEta.textContent =
+          formatClock(eta.arrive) + ' · ' + Math.max(1, Math.round(eta.minutes)) + ' min';
+      } else {
+        this.el.navEta.textContent = '';
+      }
+    }
+    const p = total > 0 ? clamp(1 - (remaining || 0) / total, 0, 1) : 0;
     this.el.navProgress.style.width = (p * 100).toFixed(1) + '%';
   }
 

@@ -16,7 +16,7 @@ import { lin, clamp, damp, dampAngle, rand, formatMoney } from './core/util.js';
 import { Vehicle } from './vehicles/vehicle.js';
 import { TrafficSystem, spawnParkedCars } from './gameplay/traffic.js';
 import { Crowd } from './gameplay/crowd.js';
-import { Navigator } from './gameplay/nav.js';
+import { Navigator, RoutePath, TURN_GLYPH } from './gameplay/nav.js';
 import { TaxiService } from './gameplay/taxi.js';
 import { PoliceSystem, EmergencyServices } from './gameplay/police.js';
 import { Hud } from './ui/hud.js';
@@ -71,6 +71,8 @@ let playerVehicle;
 let foot;
 let ribbon;
 let keys = {};
+// held buttons from the on-screen pad, merged with the keyboard
+const touch = { gas: false, brake: false, left: false, right: false };
 let bootFillEl;
 let bootLabelEl;
 
@@ -124,6 +126,7 @@ async function boot() {
   setProgress(0.78, 'Lucht en licht…');
   await tick();
   sky = createSky(scene, buildingMat.uniforms);
+  sky.attachRenderer(renderer);
 
   setProgress(0.86, 'Botsingen klaarzetten…');
   await tick();
@@ -175,6 +178,18 @@ async function boot() {
   document.getElementById('menu').classList.remove('hidden');
   setTimeout(() => document.getElementById('boot').classList.add('hidden'), 500);
   window.addEventListener('resize', onResize);
+  // a small handle for debugging and for checking the audio in the browser
+  window.__soest = {
+    get audio() { return audio; },
+    get game() { return game; },
+    get vehicle() { return playerVehicle; },
+    get traffic() { return traffic; },
+    // hold a control from the console: __soest.drive('gas', true)
+    drive(name, on) {
+      if (name in touch) touch[name] = !!on;
+      return touch;
+    }
+  };
   bindMenu();
   bindInput();
 
@@ -291,7 +306,54 @@ function bindInput() {
   });
 
   window.addEventListener('mousedown', () => {
-    if (game.running) audio.init();
+    if (game.running) {
+      audio.init();
+      audio.unlock();
+    }
+  });
+
+  bindDrivePad();
+}
+
+/**
+ * The on-screen pad. Pointer events cover mouse, touch and pen, and the state
+ * lives in `touch` so the same path drives the car as the keyboard. Without
+ * this the game was only playable with a physical keyboard.
+ */
+function bindDrivePad() {
+  const pad = document.getElementById('drivePad');
+  if (!pad) return;
+  const btns = pad.querySelectorAll('[data-drive]');
+
+  const set = (name, on, el) => {
+    if (!(name in touch)) return;
+    touch[name] = on;
+    if (el) el.classList.toggle('held', on);
+  };
+
+  btns.forEach((el) => {
+    const name = el.dataset.drive;
+    const down = (e) => {
+      e.preventDefault();
+      el.setPointerCapture?.(e.pointerId);
+      set(name, true, el);
+      if (game.running) audio.init();
+    };
+    const up = (e) => {
+      e.preventDefault();
+      set(name, false, el);
+    };
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointerleave', up);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  });
+
+  // a stuck button must never be able to lock the throttle on
+  window.addEventListener('blur', () => {
+    for (const k of Object.keys(touch)) touch[k] = false;
+    btns.forEach((el) => el.classList.remove('held'));
   });
 }
 
@@ -448,7 +510,10 @@ function idleCamera(dt) {
   sky.update(game.time, camera);
   if (cityMesh) cityMesh.setNight(sky.state.night);
   if (landmarks) landmarks.update(performance.now() * 0.001);
-  if (traffic) traffic.update(dt, null);
+  if (traffic) {
+    traffic.setNight(sky.state.night);
+    traffic.update(dt, null);
+  }
   if (crowd) crowd.update(dt);
 }
 
@@ -465,6 +530,16 @@ function step(dt) {
   landmarks.update(performance.now() * 0.001);
 
   const night = sky.state.night;
+  const beam = clamp(night * 1.4, 0, 1);
+
+  // everything with a driver in it switches its lights on after dusk
+  traffic.setNight(night);
+  if (police) {
+    for (const car of police.cars) car.vehicle.setHeadlights(night > 0.42, beam);
+  }
+  if (emergency) {
+    for (const car of emergency.cars) car.vehicle.setHeadlights(night > 0.42, beam);
+  }
 
   if (game.onFoot) {
     updateFoot(dt);
@@ -491,8 +566,12 @@ function step(dt) {
   let route = taxiRoute;
   let target = taxi && taxi.target ? taxi.target : null;
   if (game.waypoint) {
+    // re-route only when the driver has actually left the line, not on a timer
+    const off = game.waypointRoute
+      ? nav.progress(game.waypointRoute.points, playerVehicle.x, playerVehicle.z).off
+      : Infinity;
     game.waypointTimer = (game.waypointTimer || 0) + dt;
-    if (game.waypointTimer > 1.5) {
+    if (game.waypointTimer > 5 || (off > 25 && game.waypointTimer > 1)) {
       game.waypointTimer = 0;
       const r = nav.routeAhead(playerVehicle.x, playerVehicle.z, playerVehicle.heading, game.waypoint.x, game.waypoint.z);
       if (r) game.waypointRoute = r;
@@ -507,11 +586,21 @@ function step(dt) {
       target = { x: game.waypoint.x, z: game.waypoint.z, color: '#ff5b4a' };
     }
   }
-  if (route) {
-    ribbon.set(route.points, playerVehicle.x, playerVehicle.z);
-    const g = nav.guidance(route.points, playerVehicle.x, playerVehicle.z, playerVehicle.heading);
-    const rem = nav.remaining(route.points, playerVehicle.x, playerVehicle.z);
-    hud.setNav(g, rem);
+  if (route && route.points && route.points.length > 1) {
+    // the line is drawn in the same lane the car drives, using the lane width of
+    // the street under it
+    const under = nav.net.nearestEdge(playerVehicle.x, playerVehicle.z);
+    const laneOff = under && under.edge
+      ? Math.max(1.2, (under.edge.width * 0.5 - 2.6) * 0.55)
+      : 1.4;
+    ribbon.set(route.points, playerVehicle.x, playerVehicle.z, laneOff);
+    const g = nav.guidance(route.points, playerVehicle.x, playerVehicle.z);
+    const prog = nav.progress(route.points, playerVehicle.x, playerVehicle.z);
+    // arrival estimate: the car's own pace, floored so a standstill does not
+    // promise an arrival next week
+    const kmh = Math.max(18, playerVehicle.speed * 3.6);
+    const minutes = (prog.remaining / 1000) / kmh * 60;
+    hud.setNav(g, prog.remaining, prog.total, { minutes, arrive: (game.time + minutes / 60) % 24 });
   } else {
     ribbon.clear();
     hud.setNav(null);
@@ -557,10 +646,10 @@ function step(dt) {
 let inputLoad = 0;
 
 function readDriveInput() {
-  const fwd = keys.KeyW || keys.ArrowUp ? 1 : 0;
-  const back = keys.KeyS || keys.ArrowDown ? 1 : 0;
-  const left = keys.KeyA || keys.ArrowLeft ? 1 : 0;
-  const right = keys.KeyD || keys.ArrowRight ? 1 : 0;
+  const fwd = keys.KeyW || keys.ArrowUp || touch.gas ? 1 : 0;
+  const back = keys.KeyS || keys.ArrowDown || touch.brake ? 1 : 0;
+  const left = keys.KeyA || keys.ArrowLeft || touch.left ? 1 : 0;
+  const right = keys.KeyD || keys.ArrowRight || touch.right ? 1 : 0;
   const boost = keys.ShiftLeft || keys.ShiftRight ? 1 : 0;
   const handbrake = keys.Space;
 
@@ -777,13 +866,13 @@ function updateMinimap() {
   if (!minimap) return;
   blips.length = 0;
   for (const car of traffic.cars) {
-    blips.push({ x: car.vehicle.x, z: car.vehicle.z, color: 'rgba(230,236,240,0.85)', size: 2.6 });
+    blips.push({ x: car.vehicle.x, z: car.vehicle.z, color: 'rgba(96,104,116,0.55)', size: 2.4 });
   }
   for (const car of police.cars) {
-    blips.push({ x: car.vehicle.x, z: car.vehicle.z, color: '#6f8dff', size: 3.4 });
+    blips.push({ x: car.vehicle.x, z: car.vehicle.z, color: '#2f6bff', size: 4 });
   }
   for (const car of emergency.cars) {
-    blips.push({ x: car.vehicle.x, z: car.vehicle.z, color: '#ff6a5a', size: 3.2 });
+    blips.push({ x: car.vehicle.x, z: car.vehicle.z, color: '#ea4335', size: 4 });
   }
 
   const target = taxi && taxi.target
@@ -796,11 +885,25 @@ function updateMinimap() {
   const pz = game.onFoot ? foot.z : playerVehicle.z;
   const heading = game.onFoot ? foot.heading : playerVehicle.heading;
 
+  // route progress and the next junction, for the two-tone route and its arrow
+  const route = (taxi && taxi.route) || game.waypointRoute;
+  let progress = null;
+  let nextTurn = null;
+  if (route && route.points && route.points.length > 1) {
+    progress = nav.progress(route.points, px, pz);
+    const g = nav.guidance(route.points, px, pz);
+    if (g && g.target && g.turn !== 'arrive') {
+      nextTurn = { x: g.target.x, z: g.target.z, glyph: TURN_GLYPH[g.turn] || '↑' };
+    }
+  }
+
   minimap.draw({
     x: px,
     z: pz,
     heading,
-    route: (taxi && taxi.route) || game.waypointRoute,
+    route,
+    progress,
+    nextTurn,
     target,
     blips,
     night: sky ? sky.state.night : 0
@@ -914,101 +1017,121 @@ class RouteRibbon {
     this.group.frustumCulled = false;
     scene.add(this.group);
     this.key = '';
-    this.pool = [];
+    this.path = null;
+    this.maxSeg = 260;
+    // The casing and the blue core are drawn in that order and depth writes are
+    // off, so the core needs a higher renderOrder to always land on top of it.
+    this.outer = this.makeStrip(2.5, 0xffffff, 0.9, 0.2, 5);
+    this.inner = this.makeStrip(1.75, 0x1a73e8, 1, 0.32, 7);
+    this.group.visible = false;
+  }
 
-    this.arrowGeo = new THREE.PlaneGeometry(2.1, 3.6);
-    this.arrowGeo.rotateX(-Math.PI / 2);
-    this.arrowMat = new THREE.MeshBasicMaterial({
-      map: TEX.arrow(),
+  /** One triangle strip of a given width and colour, lying on the road. */
+  makeStrip(width, color, opacity, y, order) {
+    const geo = new THREE.BufferGeometry();
+    const verts = new Float32Array(this.maxSeg * 2 * 3);
+    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3).setUsage(THREE.DynamicDrawUsage));
+    const idx = [];
+    for (let i = 0; i < this.maxSeg - 1; i++) {
+      const a = i * 2;
+      const b = a + 1;
+      const c = (i + 1) * 2;
+      const d = c + 1;
+      idx.push(a, b, c, b, d, c);
+    }
+    geo.setIndex(idx);
+    geo.setDrawRange(0, 0);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
       transparent: true,
-      opacity: 0.95,
+      opacity,
       depthWrite: false,
       side: THREE.DoubleSide,
       polygonOffset: true,
-      polygonOffsetFactor: -10,
-      polygonOffsetUnits: -10
+      polygonOffsetFactor: -9,
+      polygonOffsetUnits: -9
     });
-
-    this.glowGeo = new THREE.PlaneGeometry(4.4, 6.0);
-    this.glowGeo.rotateX(-Math.PI / 2);
-    this.glowMat = new THREE.MeshBasicMaterial({
-      map: TEX.glow(),
-      color: 0x3f9bff,
-      transparent: true,
-      opacity: 0.42,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = order;
+    this.group.add(mesh);
+    return { geo, verts, width, y };
   }
 
-  set(points, playerX, playerZ) {
+  /**
+   * Paint the route ahead of the car as a solid blue line with a white edge,
+   * the way a navigation app draws one. It is rebuilt every frame for the
+   * stretch in front of the driver, so the line never runs out.
+   */
+  set(points, playerX, playerZ, laneOffset = 1.6) {
     if (!points || points.length < 2) {
       this.clear();
       return;
     }
+    // rebuild the distance lookup only when the route itself changes
     let key = points.length + ':';
-    for (let i = 0; i < points.length; i += 2) {
-      key += Math.round(points[i].x / 30) + ',' + Math.round(points[i].z / 30) + ';';
+    for (let i = 0; i < points.length; i++) {
+      key += Math.round(points[i].x / 4) + ',' + Math.round(points[i].z / 4) + ';';
     }
-    if (key === this.key) return;
-    this.key = key;
-
-    let used = 0;
-    const STEP = 8;
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i];
-      const b = points[i + 1];
-      const dx = b.x - a.x;
-      const dz = b.z - a.z;
-      const len = Math.hypot(dx, dz);
-      if (len < 1) continue;
-      const ux = dx / len;
-      const uz = dz / len;
-      const angle = Math.atan2(ux, uz);
-
-      for (let t = 2; t < len; t += STEP) {
-        const px = a.x + ux * t;
-        const pz = a.z + uz * t;
-        const d = Math.hypot(px - playerX, pz - playerZ);
-        if (d < 6 || d > 240) continue;
-
-        let m = this.pool[used];
-        if (!m) {
-          m = new THREE.Mesh(this.arrowGeo, this.arrowMat);
-          m.frustumCulled = false;
-          m.renderOrder = 6;
-          this.group.add(m);
-          const g = new THREE.Mesh(this.glowGeo, this.glowMat);
-          g.frustumCulled = false;
-          g.renderOrder = 5;
-          this.group.add(g);
-          m.userData.glow = g;
-          this.pool.push(m);
-        }
-        m.visible = true;
-        m.position.set(px, 0.22, pz);
-        m.rotation.y = angle + Math.PI;
-        const g = m.userData.glow;
-        g.visible = true;
-        g.position.set(px, 0.15, pz);
-        g.rotation.y = angle;
-        used++;
-      }
+    if (key !== this.key) {
+      this.key = key;
+      this.path = new RoutePath(points);
     }
-    for (let i = used; i < this.pool.length; i++) {
-      this.pool[i].visible = false;
-      this.pool[i].userData.glow.visible = false;
+    const path = this.path;
+    if (!path || path.length < 2) {
+      this.clear();
+      return;
     }
-    this.group.visible = used > 0;
+
+    const s0 = Math.max(0, path.project(playerX, playerZ) - 6);
+    const AHEAD = 400;
+    const s1 = Math.min(path.length, s0 + AHEAD);
+    const step = Math.max(1.6, (s1 - s0) / (this.maxSeg - 1));
+    let n = 0;
+    for (let s = s0; s <= s1 && n < this.maxSeg; s += step) {
+      const p = path.at(Math.min(s, path.length));
+      if (!p) break;
+      n++;
+      // taper the far end so the line does not simply stop square
+      const fade = Math.min(1, Math.max(0, (s1 - s) / 18));
+      // the route runs down the middle of the road; the car drives the right
+      // hand lane, so the line is shifted into that lane
+      const nx = Math.cos(p.angle);
+      const nz = -Math.sin(p.angle);
+      const point = { x: p.x - nx * laneOffset, z: p.z - nz * laneOffset };
+      this.writePair(this.outer, n - 1, point, nx, nz, fade);
+      this.writePair(this.inner, n - 1, point, nx, nz, fade);
+    }
+    for (const strip of [this.outer, this.inner]) {
+      strip.geo.attributes.position.needsUpdate = true;
+      strip.geo.setDrawRange(0, Math.max(0, n - 1) * 6);
+      strip.geo.computeBoundingSphere();
+    }
+    this.group.visible = n > 1;
+  }
+
+  writePair(strip, i, p, nx, nz, fade) {
+    const half = strip.width * 0.5 * (0.35 + 0.65 * fade);
+    const v = strip.verts;
+    const o = i * 6;
+    v[o] = p.x + nx * half;
+    v[o + 1] = strip.y;
+    v[o + 2] = p.z + nz * half;
+    v[o + 3] = p.x - nx * half;
+    v[o + 4] = strip.y;
+    v[o + 5] = p.z - nz * half;
   }
 
   clear() {
     this.group.visible = false;
     this.key = '';
+    this.path = null;
+    if (this.outer) this.outer.geo.setDrawRange(0, 0);
+    if (this.inner) this.inner.geo.setDrawRange(0, 0);
   }
 
   show() {
-    if (this.pool.length) this.group.visible = true;
+    if (this.path) this.group.visible = true;
   }
 }
 

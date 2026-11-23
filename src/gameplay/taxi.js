@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { POIS } from '../world/data.js';
+import { projectOnEdge } from '../world/network.js';
 import { rand, pick, formatMoney, formatDistance } from '../core/util.js';
 
 const NAMES = [
@@ -94,6 +95,66 @@ export class TaxiService {
     this.player = player;
   }
 
+  /**
+   * Turn a landmark into a place you can actually pull over. The point of
+   * interest is often in the middle of a block, so it is snapped onto the
+   * nearest street and then placed in the kerb-side lane, with the passenger
+   * standing on the pavement beside it.
+   *
+   * `fromX, fromZ` is where the taxi is coming from, which decides the side:
+   * Dutch traffic keeps right, so the car pulls in at the right-hand kerb of
+   * its direction of travel. The passenger waits on that pavement — sometimes
+   * that means they cross the street, which is what a real pickup does, and is
+   * far better than parking nose-on into oncoming traffic.
+   *
+   * Returns the car's stopping position (x, z) and the passenger's (standX,
+   * standZ), so the beacon sits on the pavement and the route ends in the lane.
+   */
+  kerbStop(poi, fromX = poi.x, fromZ = poi.z) {
+    const net = this.ctx.nav.net;
+    const near = net.nearestEdge(poi.x, poi.z, (e) => e.width <= 15);
+    if (!near || !near.edge) {
+      return { ...poi, standX: poi.x, standZ: poi.z };
+    }
+    const e = near.edge;
+    const proj = projectOnEdge(e, poi.x, poi.z);
+    // keep clear of the junctions, so the stop is not inside a crossroad
+    const pad = Math.min(8, e.len * 0.25);
+    const s = Math.max(pad, Math.min(e.len - pad, proj.t * e.len));
+
+    const bx = e.ax + e.dx * s;
+    const bz = e.az + e.dz * s;
+
+    // which way the car will arrive along this street
+    const fromS = projectOnEdge(e, fromX, fromZ).t * e.len;
+    const approach = fromS <= s ? 1 : -1;
+
+    // right of travel for that direction: forward is (dx, dz) * approach, so
+    // the right-hand normal is (-dz, dx) * approach
+    const rx = -e.dz * approach;
+    const rz = e.dx * approach;
+
+    // the taxi pulls in beside the kerb, in the outer lane
+    const lane = Math.max(1.2, e.width * 0.5 - 2.2);
+    // the passenger waits on the pavement, clear of the carriageway edge
+    const stand = e.width * 0.5 + 1.8;
+
+    return {
+      name: poi.name,
+      kind: poi.kind,
+      // where the taxi stops: the kerb-side lane
+      x: bx + rx * lane,
+      z: bz + rz * lane,
+      // where the passenger waits: on the pavement beyond it
+      standX: bx + rx * stand,
+      standZ: bz + rz * stand,
+      // the side of the road this stop is on, as a unit normal
+      sideX: rx,
+      sideZ: rz,
+      edge: e
+    };
+  }
+
   chooseJob() {
     const p = this.player;
     const here = { x: p.x, z: p.z };
@@ -107,13 +168,16 @@ export class TaxiService {
       return d > 70 && d < 520;
     });
     if (!candidates.length) return null;
-    const pickup = pick(candidates);
+    const pickupPoi = pick(candidates);
     const dests = POIS.filter((poi) => {
       if (!GOOD.has(poi.kind)) return false;
-      const d = Math.hypot(poi.x - pickup.x, poi.z - pickup.z);
+      const d = Math.hypot(poi.x - pickupPoi.x, poi.z - pickupPoi.z);
       return d > 140;
     });
-    const dest = dests.length ? pick(dests) : pick(POIS);
+    const pickup = this.kerbStop(pickupPoi, p.x, p.z);
+    const destPoi = dests.length ? pick(dests) : pick(POIS);
+    // the drop-off is approached from the pickup, so it is the same kind of stop
+    const dest = this.kerbStop(destPoi, pickup.x, pickup.z);
     const kind = pickKind();
     const name = pick(NAMES);
     return {
@@ -138,7 +202,7 @@ export class TaxiService {
       this.job.pickup.x, this.job.pickup.z
     );
     this.route = route;
-    this.marker.position.set(this.job.pickup.x, 0, this.job.pickup.z);
+    this.marker.position.set(this.job.pickup.standX, 0, this.job.pickup.standZ);
     this.marker.visible = true;
     this.marker.userData.beam.material.color.set(this.job.kind.color);
     this.marker.userData.ring.material.color.set(this.job.kind.color);
@@ -180,8 +244,19 @@ export class TaxiService {
     }
 
     if (this.state === 'toPickup') {
+      // measured from the kerb where the taxi pulls in, not from the pavement
       const d = Math.hypot(this.job.pickup.x - p.x, this.job.pickup.z - p.z);
-      if (this.route) this.route = this.ctx.nav.routeAhead(p.x, p.z, p.heading, this.job.pickup.x, this.job.pickup.z);
+      // Re-route when the driver leaves the line, not on every frame: a fresh
+      // A* each frame made the ribbon jitter and cost more than it was worth.
+      this.routeTimer = (this.routeTimer || 0) + dt;
+      if (this.route) {
+        const off = this.ctx.nav.progress(this.route.points, p.x, p.z).off;
+        if (this.routeTimer > 5 || (off > 25 && this.routeTimer > 1)) {
+          this.routeTimer = 0;
+          const r = this.ctx.nav.routeAhead(p.x, p.z, p.heading, this.job.pickup.x, this.job.pickup.z);
+          if (r) this.route = r;
+        }
+      }
       if (d < 8 && p.speed < 2.5) {
         this.state = 'boarding';
         this.timer = 1.8;
@@ -196,7 +271,7 @@ export class TaxiService {
       if (this.timer <= 0) {
         this.state = 'toDrop';
         this.meterDistance = 0;
-        this.marker.position.set(this.job.dest.x, 0, this.job.dest.z);
+        this.marker.position.set(this.job.dest.standX, 0, this.job.dest.standZ);
         const route = this.ctx.nav.routeAhead(p.x, p.z, p.heading, this.job.dest.x, this.job.dest.z);
         this.route = route;
         this.ctx.hud.setMission(
@@ -212,9 +287,10 @@ export class TaxiService {
     if (this.state === 'toDrop') {
       const d = Math.hypot(this.job.dest.x - p.x, this.job.dest.z - p.z);
       if (this.route) {
-        // top the route up now and then so the compass stays honest
+        // top the route up once the driver drifts off it
         this.routeTimer = (this.routeTimer || 0) + dt;
-        if (this.routeTimer > 1.2) {
+        const off = this.ctx.nav.progress(this.route.points, p.x, p.z).off;
+        if (this.routeTimer > 5 || (off > 25 && this.routeTimer > 1)) {
           this.routeTimer = 0;
           const r = this.ctx.nav.routeAhead(p.x, p.z, p.heading, this.job.dest.x, this.job.dest.z);
           if (r) this.route = r;
@@ -259,8 +335,18 @@ export class TaxiService {
 
   get target() {
     if (!this.job) return null;
-    if (this.state === 'toPickup') return this.job.pickup;
-    if (this.state === 'toDrop') return this.job.dest;
-    return null;
+    const stop = this.state === 'toPickup'
+      ? this.job.pickup
+      : this.state === 'toDrop'
+        ? this.job.dest
+        : null;
+    if (!stop) return null;
+    // the beacon and the map pin sit on the pavement, beside the pull-in
+    return {
+      x: stop.standX != null ? stop.standX : stop.x,
+      z: stop.standZ != null ? stop.standZ : stop.z,
+      name: stop.name,
+      color: this.job.kind.color
+    };
   }
 }

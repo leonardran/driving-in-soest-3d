@@ -3,6 +3,19 @@
 import { clamp } from '../core/util.js';
 import { projectOnEdge } from '../world/network.js';
 
+/** One glyph per turn type, shared by the HUD card and the minimap. */
+export const TURN_GLYPH = {
+  left: '←',
+  right: '→',
+  straight: '↑',
+  uturn: '⤺',
+  arrive: '●',
+  keepLeft: '↖',
+  keepRight: '↗',
+  sharpLeft: '⇦',
+  sharpRight: '⇨'
+};
+
 export class Navigator {
   constructor(network) {
     this.net = network;
@@ -126,22 +139,54 @@ export class Navigator {
   }
 
   /**
-   * Work out what the driver should do next: which way to turn and how far.
+   * Where the driver is on a route: which leg they are on, how far off the
+   * line they have drifted, and how much road is left. This is the one place
+   * that works out progress, so guidance, the card and the re-route check all
+   * agree with each other.
    */
-  guidance(routePoints, x, z, heading) {
+  progress(routePoints, x, z) {
     if (!routePoints || routePoints.length < 2) {
-      return { turn: 'straight', text: 'Rijd naar de bestemming', distance: 0, target: null };
+      return { off: Infinity, idx: 0, remaining: 0, total: 0 };
     }
-    // find the first segment we are still travelling along
     let idx = 0;
-    let bestD = Infinity;
+    let off = Infinity;
     for (let i = 0; i < routePoints.length - 1; i++) {
       const a = routePoints[i];
       const b = routePoints[i + 1];
       const d = pointSegDist(a.x, a.z, b.x, b.z, x, z);
-      if (d < bestD - 0.5) { bestD = d; idx = i; }
+      if (d < off) {
+        off = d;
+        idx = i;
+      }
     }
+    let total = 0;
+    for (let i = 1; i < routePoints.length; i++) {
+      total += Math.hypot(routePoints[i].x - routePoints[i - 1].x, routePoints[i].z - routePoints[i - 1].z);
+    }
+    let remaining = Math.hypot(routePoints[idx + 1].x - x, routePoints[idx + 1].z - z);
+    for (let i = idx + 1; i < routePoints.length - 1; i++) {
+      remaining += Math.hypot(routePoints[i + 1].x - routePoints[i].x, routePoints[i + 1].z - routePoints[i].z);
+    }
+    return { off, idx, remaining, total };
+  }
 
+  /** Name of the street closest to a point, for the instruction card. */
+  streetAt(x, z) {
+    const near = this.net.nearestEdge(x, z);
+    return near && near.edge && near.edge.name ? near.edge.name : '';
+  }
+
+  /**
+   * Work out what the driver should do next: which way to turn, how far to the
+   * junction, and which street they join. Bends are graded from "hold left"
+   * to "sharp right" so the arrow and the wording match the road.
+   */
+  guidance(routePoints, x, z) {
+    if (!routePoints || routePoints.length < 2) {
+      return { turn: 'straight', text: 'Rijd naar de bestemming', street: '', distance: 0, remaining: 0, target: null };
+    }
+    const p = this.progress(routePoints, x, z);
+    const idx = p.idx;
     const nextPoint = routePoints[Math.min(idx + 1, routePoints.length - 1)];
     const after = routePoints[Math.min(idx + 2, routePoints.length - 1)];
     const distToNext = Math.hypot(nextPoint.x - x, nextPoint.z - z);
@@ -150,8 +195,10 @@ export class Navigator {
       const dest = routePoints[routePoints.length - 1];
       return {
         turn: 'arrive',
-        text: 'Bestemming bereikt',
-        distance: Math.hypot(dest.x - x, dest.z - z),
+        text: distToNext < 20 ? 'U bent er' : 'Bestemming vooruit',
+        street: '',
+        distance: distToNext,
+        remaining: p.remaining,
         target: dest
       };
     }
@@ -161,39 +208,40 @@ export class Navigator {
     let delta = b2 - b1;
     while (delta > Math.PI) delta -= Math.PI * 2;
     while (delta < -Math.PI) delta += Math.PI * 2;
+    const ad = Math.abs(delta);
 
     let turn = 'straight';
-    if (delta > 0.32) turn = 'right';
-    else if (delta < -0.32) turn = 'left';
-    if (Math.abs(delta) > 2.5) turn = 'uturn';
+    let text = 'Rijd rechtdoor';
+    if (ad > 2.6) {
+      turn = 'uturn';
+      text = 'Keer om';
+    } else if (ad > 1.5) {
+      turn = delta > 0 ? 'sharpRight' : 'sharpLeft';
+      text = delta > 0 ? 'Scherp rechtsaf' : 'Scherp linksaf';
+    } else if (ad > 0.55) {
+      turn = delta > 0 ? 'right' : 'left';
+      text = delta > 0 ? 'Sla rechtsaf' : 'Sla linksaf';
+    } else if (ad > 0.22) {
+      turn = delta > 0 ? 'keepRight' : 'keepLeft';
+      text = delta > 0 ? 'Houd rechts aan' : 'Houd links aan';
+    }
 
-    const deg = (delta * 180) / Math.PI;
-    let text;
-    if (turn === 'left') text = 'Sla linksaf';
-    else if (turn === 'right') text = 'Sla rechtsaf';
-    else if (turn === 'uturn') text = 'Keer om';
-    else text = 'Rijd rechtdoor';
-
-    void heading;
-    return { turn, text, distance: distToNext, delta: deg, target: nextPoint };
+    return {
+      turn,
+      text,
+      // going straight, name the street you stay on; turning, the one you join
+      street: turn === 'straight' || turn === 'keepLeft' || turn === 'keepRight'
+        ? this.streetAt(x, z)
+        : this.streetAt(after.x, after.z),
+      distance: distToNext,
+      remaining: p.remaining,
+      delta: (delta * 180) / Math.PI,
+      target: nextPoint
+    };
   }
 
   remaining(routePoints, x, z) {
-    if (!routePoints || routePoints.length < 2) return 0;
-    let idx = 0;
-    let bestD = Infinity;
-    for (let i = 0; i < routePoints.length - 1; i++) {
-      const d = pointSegDist(routePoints[i].x, routePoints[i].z, routePoints[i + 1].x, routePoints[i + 1].z, x, z);
-      if (d < bestD) { bestD = d; idx = i; }
-    }
-    const a = routePoints[idx];
-    const b = routePoints[idx + 1];
-    let d = Math.hypot(b.x - x, b.z - z);
-    for (let i = idx + 1; i < routePoints.length - 1; i++) {
-      d += Math.hypot(routePoints[i + 1].x - routePoints[i].x, routePoints[i + 1].z - routePoints[i].z);
-    }
-    void a;
-    return d;
+    return this.progress(routePoints, x, z).remaining;
   }
 }
 
@@ -208,4 +256,62 @@ function pointSegDist(ax, az, bx, bz, px, pz) {
   const cx = ax + vx * t - px;
   const cz = az + vz * t - pz;
   return Math.hypot(cx, cz);
+}
+
+/**
+ * A route polyline with its cumulative lengths, so the guidance can ask "where
+ * is 40 m ahead of me on this line?". Built once per route change.
+ */
+export class RoutePath {
+  constructor(points) {
+    this.points = points || [];
+    this.cum = [0];
+    for (let i = 1; i < this.points.length; i++) {
+      const a = this.points[i - 1];
+      const b = this.points[i];
+      this.cum.push(this.cum[i - 1] + Math.hypot(b.x - a.x, b.z - a.z));
+    }
+    this.length = this.cum.length ? this.cum[this.cum.length - 1] : 0;
+  }
+
+  /** Distance along the line of the point nearest (px, pz). */
+  project(px, pz) {
+    if (this.points.length < 2) return 0;
+    let bestS = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < this.points.length - 1; i++) {
+      const a = this.points[i];
+      const b = this.points[i + 1];
+      const vx = b.x - a.x;
+      const vz = b.z - a.z;
+      const l2 = vx * vx + vz * vz;
+      let t = l2 > 0 ? ((px - a.x) * vx + (pz - a.z) * vz) / l2 : 0;
+      t = clamp(t, 0, 1);
+      const cx = a.x + vx * t;
+      const cz = a.z + vz * t;
+      const d = (cx - px) * (cx - px) + (cz - pz) * (cz - pz);
+      if (d < bestD) {
+        bestD = d;
+        bestS = this.cum[i] + Math.sqrt(l2) * t;
+      }
+    }
+    return bestS;
+  }
+
+  /** Position and heading along the line at distance s. */
+  at(s) {
+    if (this.points.length < 2) return null;
+    const d = clamp(s, 0, this.length);
+    let i = 1;
+    while (i < this.cum.length - 1 && this.cum[i] < d) i++;
+    const a = this.points[i - 1];
+    const b = this.points[i];
+    const segLen = this.cum[i] - this.cum[i - 1] || 1;
+    const t = (d - this.cum[i - 1]) / segLen;
+    return {
+      x: a.x + (b.x - a.x) * t,
+      z: a.z + (b.z - a.z) * t,
+      angle: Math.atan2(b.x - a.x, b.z - a.z)
+    };
+  }
 }

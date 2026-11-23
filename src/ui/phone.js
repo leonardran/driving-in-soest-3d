@@ -247,8 +247,9 @@ export class Phone {
     }
     const now = document.createElement('p');
     now.className = 'phone-note';
+    const track = audio.nowPlaying();
     now.textContent = audio.radioIndex >= 0
-      ? 'Nu op de radio: muziek, jingles en de presentator wisselen elkaar af.'
+      ? (track ? `Nu op ${RADIO_STATIONS[audio.radioIndex].name}: ${track}` : 'De band is aan het inspelen…')
       : 'Kies een zender om te beginnen.';
     this.body.appendChild(now);
     const off = document.createElement('button');

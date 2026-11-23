@@ -24,30 +24,44 @@ export function createBuildingMaterial() {
     vertexShader: /* glsl */ `
       attribute float aPart;
       attribute float aRand;
+      attribute float aTop;
 
       varying vec3 vNrm;
+      varying vec3 vLocalN;
       varying vec3 vScaled;
+      varying vec3 vScale;
       varying vec3 vTint;
       varying float vPart;
       varying float vRand;
       varying float vDepth;
+      varying float vWallTop;
 
       void main() {
         vPart = aPart;
         vRand = aRand;
         vTint = vec3(1.0);
+        vLocalN = normal;
 
         mat4 model = modelMatrix;
         vec3 shaped = position;
+        vec3 scl = vec3(1.0);
         #ifdef USE_INSTANCING
           model = modelMatrix * instanceMatrix;
           shaped = mat3(instanceMatrix) * position;
+          scl = vec3(
+            length(instanceMatrix[0].xyz),
+            length(instanceMatrix[1].xyz),
+            length(instanceMatrix[2].xyz)
+          );
         #endif
         #ifdef USE_INSTANCING_COLOR
           vTint = instanceColor;
         #endif
 
         vScaled = shaped;
+        vScale = scl;
+        // height of the walls (the part before the roof), in metres
+        vWallTop = scl.y * aTop;
         vec4 world = model * vec4(position, 1.0);
         vNrm = normalize(mat3(model) * normal);
         vec4 mv = viewMatrix * world;
@@ -67,11 +81,14 @@ export function createBuildingMaterial() {
       uniform float uFogDensity;
 
       varying vec3 vNrm;
+      varying vec3 vLocalN;
       varying vec3 vScaled;
+      varying vec3 vScale;
       varying vec3 vTint;
       varying float vPart;
       varying float vRand;
       varying float vDepth;
+      varying float vWallTop;
 
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -84,27 +101,79 @@ export function createBuildingMaterial() {
         vec2 winCell = vec2(0.0);
 
         if (vPart > 0.5) {
+          // --- roof ---
           float n = hash(floor(vScaled.xz * 1.6) + vRand * 7.0);
           base = mix(vec3(0.17, 0.062, 0.043), vec3(0.135, 0.135, 0.125), vRand) * (0.82 + n * 0.4);
+          // tile courses running down the pitch
+          float tile = fract(vScaled.y * 5.5 + vScaled.z * 0.7);
+          float rows = smoothstep(0.0, 0.08, tile) * smoothstep(1.0, 0.9, tile);
+          base *= 0.86 + 0.2 * rows;
         } else {
+          // --- walls ---
           float grain = hash(floor(vScaled.zy * 1.3) + floor(vScaled.xy * 1.3) + vRand);
-          base = vTint * (0.9 + 0.16 * grain);
+          base = vTint * (0.94 + 0.12 * grain);
 
+          float wallTop = max(0.6, vWallTop);
+          float spanX = abs(N.x) > abs(N.z) ? vScale.z : vScale.x;
           float horiz = abs(N.x) > abs(N.z) ? vScaled.z : vScaled.x;
-          vec2 g = vec2(horiz, vScaled.y) / vec2(2.95, 3.35);
+
+          // The window grid is fitted to this facade — a whole number of
+          // windows across and of storeys up — so no window is ever sliced in
+          // half by the roof or by a corner.
+          float cols = max(1.0, floor(spanX / 2.9 + 0.5));
+          float storeys = max(1.0, floor(wallTop / 3.2 + 0.5));
+          float u = clamp(horiz / max(spanX, 0.001) + 0.5, 0.0, 1.0);
+          vec2 g = vec2(u * cols, clamp(vScaled.y, 0.0, wallTop) / wallTop * storeys);
           vec2 f = fract(g);
           vec2 fw = fwidth(g) + 0.0005;
+          bool ground = g.y < 1.0;
+          // the local +Z face is the one the building turns to the street
+          bool front = vLocalN.z > 0.5;
 
-          float wx = smoothstep(0.19 - fw.x, 0.19 + fw.x, f.x) * (1.0 - smoothstep(0.81 - fw.x, 0.81 + fw.x, f.x));
-          float wy = smoothstep(0.27 - fw.y, 0.27 + fw.y, f.y) * (1.0 - smoothstep(0.83 - fw.y, 0.83 + fw.y, f.y));
+          // masonry courses, a dark plinth, and shade under the eaves
+          float course = fract(vScaled.y / 0.26);
+          base *= 0.93 + 0.1 * smoothstep(0.0, 0.12, course) * smoothstep(1.0, 0.86, course);
+          base *= mix(0.62, 1.0, smoothstep(0.25, 0.75, vScaled.y));
+          base *= mix(0.66, 1.0, smoothstep(0.0, 0.45, wallTop - vScaled.y));
+
+          float wx = smoothstep(0.14 - fw.x, 0.19 + fw.x, f.x) * (1.0 - smoothstep(0.81 - fw.x, 0.86 + fw.x, f.x));
+          float wy = smoothstep(0.22 - fw.y, 0.26 + fw.y, f.y) * (1.0 - smoothstep(0.84 - fw.y, 0.88 + fw.y, f.y));
+
+          // lintel over each window, sill under it
+          float inX = smoothstep(0.11, 0.17, f.x) * (1.0 - smoothstep(0.83, 0.89, f.x));
+          float sill = inX * smoothstep(0.14 - fw.y, 0.17 + fw.y, f.y) * (1.0 - smoothstep(0.215 - fw.y, 0.245 + fw.y, f.y));
+          float lintel = inX * smoothstep(0.855 - fw.y, 0.885 + fw.y, f.y) * (1.0 - smoothstep(0.925 - fw.y, 0.955 + fw.y, f.y));
+          base = mix(base, vec3(0.88, 0.86, 0.82), max(sill, lintel) * 0.75);
+
+          // shutters on some houses, flanking the upper windows
+          if (vRand > 0.5 && !ground) {
+            float band = smoothstep(0.2, 0.26, f.y) * (1.0 - smoothstep(0.82, 0.88, f.y));
+            float leftS = smoothstep(0.02, 0.06, f.x) * (1.0 - smoothstep(0.12, 0.16, f.x));
+            float rightS = smoothstep(0.84, 0.88, f.x) * (1.0 - smoothstep(0.94, 0.98, f.x));
+            base = mix(base, vTint * 0.3, (leftS + rightS) * band);
+          }
+
           glass = wx * wy;
           winCell = floor(g);
 
-          // ground floor: shop fronts on some buildings
-          if (winCell.y < 0.5 && vRand > 0.62) {
-            float sx = smoothstep(0.05 - fw.x, 0.05 + fw.x, f.x) * (1.0 - smoothstep(0.95 - fw.x, 0.95 + fw.x, f.x));
-            float sy = smoothstep(0.08 - fw.y, 0.08 + fw.y, f.y) * (1.0 - smoothstep(0.88 - fw.y, 0.88 + fw.y, f.y));
-            glass = sx * sy;
+          if (ground) {
+            // one cell of the street facade becomes the front door
+            float slot = mod(floor(g.x) + floor(vRand * 61.0), 4.0);
+            if (front && slot < 1.0) {
+              float dX = smoothstep(0.29 - fw.x, 0.33 + fw.x, f.x) * (1.0 - smoothstep(0.49 - fw.x, 0.53 + fw.x, f.x));
+              float dY = 1.0 - smoothstep(0.56 - fw.y, 0.60 + fw.y, f.y);
+              // pale frame, with the dark door set inside it
+              float frameX = smoothstep(0.25 - fw.x, 0.29 + fw.x, f.x) * (1.0 - smoothstep(0.53 - fw.x, 0.57 + fw.x, f.x));
+              float frameY = 1.0 - smoothstep(0.60 - fw.y, 0.64 + fw.y, f.y);
+              glass = 0.0;
+              base = mix(base, vec3(0.9, 0.88, 0.84), frameX * frameY);
+              base = mix(base, vec3(0.09, 0.07, 0.055), dX * dY);
+            } else if (vRand > 0.62) {
+              // shop fronts on the ground floor
+              float sx = smoothstep(0.04 - fw.x, 0.08 + fw.x, f.x) * (1.0 - smoothstep(0.92 - fw.x, 0.96 + fw.x, f.x));
+              float sy = smoothstep(0.06 - fw.y, 0.10 + fw.y, f.y) * (1.0 - smoothstep(0.86 - fw.y, 0.90 + fw.y, f.y));
+              glass = max(glass, sx * sy);
+            }
           }
         }
 
@@ -120,7 +189,9 @@ export function createBuildingMaterial() {
         if (glass > 0.001) {
           float h = hash(winCell + vRand * 19.3);
           float lit = step(0.48, h);
-          vec3 winDay = mix(vec3(0.028, 0.038, 0.05), uSkyColor * 0.2, 0.55);
+          // glass reflects the sky, brighter where it catches more of it
+          vec3 winDay = mix(vec3(0.03, 0.04, 0.055), uSkyColor * 0.5, 0.35 + 0.3 * max(N.y, 0.0));
+          winDay += uSunColor * 0.05 * pow(max(dot(N, uSunDir), 0.0), 4.0);
           vec3 winNight = uWindowLight * (0.45 + h * 0.85);
           vec3 winC = mix(winDay, winNight, uNight * lit);
           vec3 winLitOnly = winNight * (uNight * lit);
@@ -333,7 +404,12 @@ export function buildBuildings(network, material) {
       mesh.setColorAt(i, col);
       rand[i] = b.rand;
     }
+    // how far up the walls reach (the rest is roof); the shader needs it to fit
+    // a whole number of storeys and windows into each facade
+    const wallTops = { house: 0.7, villa: 0.62, block: 0.975, shed: 0.9 };
     geom.setAttribute('aRand', new THREE.InstancedBufferAttribute(rand, 1));
+    const tops = new Float32Array(list.length).fill(wallTops[key] || 0.7);
+    geom.setAttribute('aTop', new THREE.InstancedBufferAttribute(tops, 1));
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     group.add(mesh);

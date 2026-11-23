@@ -51,6 +51,21 @@ body {
   height: 100%;
 }
 
+/* a soft lens vignette so the day/night grade sits together */
+#app::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  background: radial-gradient(
+    ellipse 78% 70% at 50% 54%,
+    rgba(0, 0, 0, 0) 52%,
+    rgba(6, 10, 16, 0.3) 86%,
+    rgba(4, 7, 11, 0.52) 100%
+  );
+}
+
 .hidden {
   display: none !important;
 }
@@ -177,22 +192,24 @@ body {
 .nav-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 14px;
+  gap: 13px;
+  padding: 12px 15px;
 }
 
+/* the turn tile: the blue rounded square a navigation app shows the arrow in */
 .nav-arrow {
   flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
+  width: 46px;
+  height: 46px;
   display: grid;
   place-items: center;
   border-radius: 12px;
-  background: linear-gradient(160deg, #3d8ef0, #2364c4);
+  background: #1a73e8;
   color: #fff;
-  font-size: 20px;
+  font-size: 25px;
+  line-height: 1;
   font-weight: 700;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  box-shadow: 0 2px 6px rgba(26, 115, 232, 0.38);
 }
 
 .nav-body {
@@ -201,8 +218,9 @@ body {
 }
 
 .nav-instruction {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 650;
+  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -212,8 +230,8 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 2px;
-  font-size: 11px;
+  margin-top: 3px;
+  font-size: 12px;
   color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -229,11 +247,27 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* arrival time · remaining time · distance, the bottom row of a route card */
+.nav-eta {
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6fd3a0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-eta:empty {
+  display: none;
+}
+
 .nav-progress {
-  margin-top: 6px;
+  margin-top: 7px;
   height: 3px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
 }
 
@@ -242,7 +276,7 @@ body {
   height: 100%;
   width: 0;
   border-radius: 3px;
-  background: linear-gradient(90deg, #3d8ef0, #6fd3ff);
+  background: #1a73e8;
   transition: width 0.3s ease;
 }
 
@@ -254,26 +288,26 @@ body {
 
 .minimap-wrap {
   position: relative;
-  width: 172px;
-  height: 172px;
+  width: 196px;
+  height: 196px;
   border-radius: 50%;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.38);
 }
 
 #minimap {
-  width: 172px;
-  height: 172px;
+  width: 196px;
+  height: 196px;
   border-radius: 50%;
   display: block;
-  background: #16211a;
+  background: #f1eee8;
 }
 
 .minimap-ring {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.22);
-  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 -14px 26px rgba(30, 34, 40, 0.16);
   pointer-events: none;
 }
 
@@ -346,7 +380,8 @@ body {
 .hud-bottomright {
   position: absolute;
   right: 18px;
-  bottom: 18px;
+  /* clear of the on-screen driving pad in the corner below */
+  bottom: 116px;
 }
 
 .speedo {
@@ -445,7 +480,8 @@ body {
 .hud-bottomleft {
   position: absolute;
   left: 18px;
-  bottom: 18px;
+  /* clear of the on-screen driving pad in the corner below */
+  bottom: 116px;
   display: grid;
   gap: 8px;
 }
@@ -537,7 +573,7 @@ body {
 
 .hud-prompt {
   position: absolute;
-  bottom: 108px;
+  bottom: 172px;
   left: 50%;
   transform: translate(-50%, 6px);
   padding: 7px 15px;
@@ -1172,4 +1208,77 @@ body {
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.22);
   margin: 8px auto 4px;
+}
+
+
+/* ---------- on-screen driving controls ---------- */
+
+.drive-pad {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 190px;
+  pointer-events: none;
+  z-index: 12;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 0 18px 20px;
+}
+
+.pad-side {
+  display: flex;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.pad-btn {
+  pointer-events: auto;
+  width: 74px;
+  height: 74px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(13, 18, 24, 0.5);
+  color: #eef2f5;
+  font-family: inherit;
+  font-size: 25px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(10px);
+  transition: background 0.1s, transform 0.1s;
+}
+
+.pad-btn:active,
+.pad-btn.held {
+  background: rgba(26, 115, 232, 0.85);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(0.95);
+}
+
+@media (max-width: 760px) {
+  .pad-btn {
+    width: 66px;
+    height: 66px;
+    border-radius: 18px;
+    font-size: 22px;
+  }
+  .drive-pad {
+    height: 165px;
+    padding: 0 12px 14px;
+  }
+  /* the smaller pad needs a little less clearance */
+  .hud-bottomleft,
+  .hud-bottomright {
+    bottom: 100px;
+  }
+  .hud-prompt {
+    bottom: 152px;
+  }
 }

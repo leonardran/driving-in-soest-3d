@@ -235,6 +235,7 @@ export function vcMaterial(params = {}) {
     vertexColors: true,
     roughness: 0.82,
     metalness: 0.02,
+    envMapIntensity: 0.45,
     ...params
   });
 }

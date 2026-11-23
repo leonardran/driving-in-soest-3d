@@ -1,8 +1,10 @@
-// Audio: the four radio stations (real tracks from the original game) plus a
-// fully procedural engine, tyres, sirens, horn and UI sounds.
+// Audio: the four radio stations, played by a small generative band (see
+// music.js) with the original game's jingles and presenter between tracks, plus
+// a fully procedural engine, tyres, sirens, horn and UI sounds.
 
 import { RADIO_STATIONS, RADIO_TALK, RADIO_JINGLES } from '../world/data.js';
-import { clamp, pick } from '../core/util.js';
+import { clamp, shuffle } from '../core/util.js';
+import { RadioMusic, MUSIC_STATIONS } from './music.js';
 
 export class AudioEngine {
   constructor() {
@@ -28,37 +30,43 @@ export class AudioEngine {
     this.master.gain.value = this.masterVolume;
     this.master.connect(this.ctx.destination);
 
-    this.musicGain = this.ctx.createGain();
-    this.musicGain.gain.value = this.radioVolume;
-    this.musicGain.connect(this.master);
-
     this.sfxGain = this.ctx.createGain();
     this.sfxGain.gain.value = this.sfxVolume;
     this.sfxGain.connect(this.master);
 
+    // The noise buffer feeds the engine's intake and the tyre scrub, so it has
+    // to be built before either of them. Building the engine first threw on
+    // the bufferless source and left the whole audio system unready.
+    this.buildNoise();
     this.buildEngine();
     this.buildSkid();
     this.buildSiren();
-    this.buildNoise();
-    this.ready = true;
 
-    // radio element
+    // The music is generated live rather than looped from a file: the four
+    // clips in radio/ are only 7-9 seconds each, and looping them is exactly
+    // what made every station repeat itself.
+    this.music = new RadioMusic(this.ctx, this.master);
+    this.music.setVolume(this.radioVolume);
+
+    // Jingles and presenter segments are still real recordings. They are a
+    // plain media element: routing one through the Web Audio graph needs a
+    // media-element source node, and if that goes wrong it plays in silence.
     this.radio = new Audio();
     this.radio.loop = false;
     this.radio.preload = 'auto';
-    this.radio.crossOrigin = 'anonymous';
-    this.radioSource = this.ctx.createMediaElementSource(this.radio);
-    this.radioSource.connect(this.musicGain);
+    this.radio.volume = this.radioVolume;
     this.radio.addEventListener('ended', () => this.onTrackEnded());
-    this.radio.addEventListener('error', () => {
-      // a missing file must not silence the station
-      if (this.radioIndex >= 0) setTimeout(() => this.nextInPlaylist(), 400);
-    });
+    this.radio.addEventListener('error', () => this.onRadioError());
 
-    // station programming state
-    this.playlistPos = 0;
-    this.stationOrder = [];
-    this.lastItem = '';
+    // station state
+    this.station = null;
+    this.breakCount = 0;
+    this.breakTimer = null;
+    this.playVoiceNow = false;
+    this.needsUnlock = false;
+    this.radioSkips = 0;
+    this.clipBag = [];
+    this.ready = true;
   }
 
   buildNoise() {
@@ -173,55 +181,110 @@ export class AudioEngine {
   }
 
   /**
-   * Build a shuffled running order for a station: music, jingles and talk
-   * segments interleaved so the station never repeats the same thing twice
-   * in a row.
+   * A station is a band that plays live, with a jingle or a bit of presenter
+   * talk dropped in every minute or two, which is how the original game's
+   * radio felt.
    */
-  buildStationOrder(index) {
+  stationFor(index) {
     const station = RADIO_STATIONS[index];
-    const music = station.playlist.filter((f) => f.indexOf('channel-') === 0);
-    const order = [];
-    const musicPool = music.length ? music.slice() : ['radio/channel-1.mp3'];
-    let mi = 0;
-    for (let round = 0; round < 3; round++) {
-      // a song
-      order.push(musicPool[mi % musicPool.length]);
-      mi++;
-      // then either a jingle or a presenter saying something
-      if (round % 2 === 0) order.push(pick(RADIO_JINGLES));
-      else order.push(pick(RADIO_TALK));
-      // and the station's own signature segment
-      const own = station.playlist.filter((f) => f.indexOf('channel-') !== 0);
-      if (own.length) order.push(own[round % own.length]);
+    const music = MUSIC_STATIONS[station.id] || MUSIC_STATIONS.soestfm;
+    // jingles first, then the presenter: both are short recorded stubs
+    const voices = RADIO_JINGLES.concat(RADIO_TALK);
+    return { music, voices, index };
+  }
+
+  /** Start the station's band. */
+  playBed() {
+    const st = this.station;
+    if (!st || this.radioIndex < 0) return;
+    this.playVoiceNow = false;
+    this.radio.pause();
+    this.music.setStation(st.music);
+    this.music.duck(false);
+    this.music.start();
+    this.scheduleBreak();
+  }
+
+  /** One jingle or presenter segment from a shuffled bag, so none repeats early. */
+  nextClip() {
+    const st = this.station;
+    if (!st) return RADIO_JINGLES[0];
+    if (!this.clipBag || !this.clipBag.length) this.clipBag = shuffle(st.voices.slice());
+    return this.clipBag.pop();
+  }
+
+  /** Drop a jingle or a presenter segment over the music, then hand back. */
+  playBreak() {
+    const st = this.station;
+    if (!st || this.radioIndex < 0) return;
+    const file = this.nextClip();
+    this.breakCount++;
+    this.playVoiceNow = true;
+    this.music.duck(true);
+    this.radio.loop = false;
+    this.radio.src = file;
+    this.radio.load();
+    this.radio.volume = this.radioVolume;
+    const p = this.radio.play();
+    if (p && p.catch) {
+      p.catch(() => {
+        // the browser refused: keep the music going rather than sitting silent
+        this.playVoiceNow = false;
+        this.music.duck(false);
+      });
     }
-    // avoid an immediate repeat across station changes
-    if (order[0] === this.lastItem && order.length > 1) order.push(order.shift());
-    this.stationOrder = order;
-    this.playlistPos = 0;
+  }
+
+  scheduleBreak() {
+    if (this.breakTimer) clearTimeout(this.breakTimer);
+    const delay = 48000 + Math.random() * 50000; // 48-98 s of music
+    this.breakTimer = setTimeout(() => {
+      this.breakTimer = null;
+      if (this.radioIndex >= 0) this.playBreak();
+    }, delay);
+  }
+
+  /** The piece the band is playing, for the phone and the HUD. */
+  nowPlaying() {
+    if (!this.ready || this.radioIndex < 0 || !this.music) return '';
+    return this.music.nowPlaying();
   }
 
   playCurrent() {
     if (this.radioIndex < 0) return;
-    if (!this.stationOrder.length) this.buildStationOrder(this.radioIndex);
-    const file = this.stationOrder[this.playlistPos % this.stationOrder.length];
-    this.lastItem = file;
-    this.radio.src = file;
-    this.radio.volume = 1;
-    const p = this.radio.play();
-    if (p && p.catch) p.catch(() => {});
-    this.musicGain.gain.setTargetAtTime(this.radioVolume, this.ctx.currentTime, 0.2);
+    if (this.playVoiceNow) this.playBed();
+    else this.playBreak();
   }
 
-  nextInPlaylist() {
+  /**
+   * Browsers refuse to start audio before a gesture. Called from a click so a
+   * station that was blocked picks up again.
+   */
+  unlock() {
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    if (!this.ready || this.radioIndex < 0) return;
+    if (this.radio.paused && this.needsUnlock) {
+      this.needsUnlock = false;
+      const p = this.radio.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+  }
+
+  onRadioError() {
     if (this.radioIndex < 0) return;
-    this.playlistPos = (this.playlistPos + 1) % Math.max(1, this.stationOrder.length);
-    if (this.playlistPos === 0) this.buildStationOrder(this.radioIndex);
-    this.playCurrent();
+    // a missing file falls back to the bed, but never loops forever on errors
+    this.radioSkips = (this.radioSkips || 0) + 1;
+    if (this.radioSkips > 4) return;
+    setTimeout(() => {
+      if (this.radioIndex >= 0) this.playBed();
+    }, 300);
   }
 
   onTrackEnded() {
     if (this.radioIndex < 0) return;
-    this.nextInPlaylist();
+    // a break has finished: hand back to the band
+    if (this.playVoiceNow) this.playBed();
+    else this.playBreak();
   }
 
   playRadio(index) {
@@ -230,18 +293,28 @@ export class AudioEngine {
       this.stopRadio();
       return;
     }
-    if (this.radioIndex === index && !this.radio.paused) return;
+    if (this.radioIndex === index && this.music && this.music.playing) return;
     this.radioIndex = index;
-    this.buildStationOrder(index);
-    this.playCurrent();
+    this.station = this.stationFor(index);
+    this.breakCount = 0;
+    this.radioSkips = 0;
+    this.clipBag = [];
+    this.playBed();
   }
 
   stopRadio() {
     this.radioIndex = -1;
-    this.stationOrder = [];
+    this.station = null;
+    if (this.breakTimer) {
+      clearTimeout(this.breakTimer);
+      this.breakTimer = null;
+    }
+    if (this.music) this.music.stop();
     if (this.radio) {
       this.radio.pause();
+      this.radio.loop = false;
       this.radio.removeAttribute('src');
+      this.radio.load();
     }
   }
 
@@ -253,16 +326,16 @@ export class AudioEngine {
     return next;
   }
 
+  /** Put a presenter segment on straight away, e.g. from the phone. */
   playTalk() {
-    if (!this.ready) return;
-    const file = pick(RADIO_TALK);
-    // drop a presenter segment in after the current song
-    this.stationOrder.splice(this.playlistPos + 1, 0, file);
+    if (!this.ready || this.radioIndex < 0) return;
+    this.playBreak();
   }
 
   setRadioVolume(v) {
     this.radioVolume = v;
-    if (this.ready) this.musicGain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+    if (this.radio) this.radio.volume = v;
+    if (this.music) this.music.setVolume(v);
   }
 
   setSfxVolume(v) {

@@ -13,7 +13,8 @@ export class Vehicle {
     this.spec = CAR_TYPES[this.typeId] || CAR_TYPES.taxi;
     const model = makeCarModel(this.typeId, this.spec, opts.color || this.spec.color, {
       liveWheels: opts.liveWheels !== false,
-      noShadow: !!opts.noShadow
+      noShadow: !!opts.noShadow,
+      lights: opts.lights !== false
     });
     this.model = model;
     this.group = model.group;
@@ -21,6 +22,11 @@ export class Vehicle {
     this.radius = model.group.userData.radius;
     // circle used when two cars touch (much tighter than the building radius)
     this.bodyRadius = model.profile.w * 0.55;
+    // lamp glow materials, animated below
+    this.tailLamp = model.lamps ? model.lamps.tail : null;
+    this.headLamp = model.lamps ? model.lamps.head : null;
+    this.tailGlow = 0;
+    this.headGlow = 0;
 
     this.x = opts.x || 0;
     this.z = opts.z || 0;
@@ -57,17 +63,20 @@ export class Vehicle {
         blending: THREE.AdditiveBlending
       });
       const pool = new THREE.Mesh(geo, mat);
-      // the texture fades along +v; the plane's +Z must point away from the car
-      pool.rotation.y = Math.PI;
-      pool.position.set(0, 0.055, model.profile.l * 0.5 + 11);
+      // The `headlights` texture is bright and narrow at its top edge, and
+      // PlaneGeometry puts that edge at the near end after the X rotation, so
+      // no extra Y rotation is wanted — flipping it put the beam backwards.
+      pool.position.set(0, 0.06, model.profile.l * 0.5 + 11);
       pool.renderOrder = 4;
+      pool.visible = false;
       this.group.add(pool);
       this.pool = pool;
 
       if (opts.spot) {
-        const spot = new THREE.SpotLight(0xfff2d6, 0, 52, 0.62, 0.62, 1.2);
+        // a wide, soft beam: a tight bright spot washed the whole road white
+        const spot = new THREE.SpotLight(0xfff2d6, 0, 42, 0.5, 0.85, 1.8);
         spot.position.set(0, 0.72, model.profile.l * 0.5);
-        spot.target.position.set(0, -0.6, model.profile.l * 0.5 + 20);
+        spot.target.position.set(0, -0.5, model.profile.l * 0.5 + 18);
         this.group.add(spot, spot.target);
         this.spot = spot;
       }
@@ -210,12 +219,24 @@ export class Vehicle {
       w.rotation.x = this.wheelSpin;
       if (w.userData.front) w.rotation.y = -this.steer;
     }
+
+    // Lamp glow. Tail lamps are on with the lights, and flare up the moment
+    // the brakes come on; headlamps only glow at night.
+    let tailTarget = this.headlightsOn ? 0.9 : 0;
+    if (this.braking) tailTarget = Math.max(tailTarget, 2.1);
+    this.tailGlow = damp(this.tailGlow, tailTarget, this.braking ? 26 : 9, dt);
+    if (this.tailLamp) this.tailLamp.color.setScalar(this.tailGlow);
+    this.headGlow = damp(this.headGlow, this.headlightsOn ? 1.55 : 0, 11, dt);
+    if (this.headLamp) this.headLamp.color.setScalar(this.headGlow);
   }
 
   setHeadlights(on, strength = 1) {
     this.headlightsOn = on;
-    if (this.pool) this.pool.material.opacity = on ? 0.5 * strength : 0;
-    if (this.spot) this.spot.intensity = on ? 26 * strength : 0;
+    if (this.pool) {
+      this.pool.material.opacity = on ? 0.42 * strength : 0;
+      this.pool.visible = on;
+    }
+    if (this.spot) this.spot.intensity = on ? 9 * strength : 0;
   }
 
   dispose(scene) {

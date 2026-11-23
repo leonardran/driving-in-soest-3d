@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { GeomBuilder } from '../core/geom.js';
-import { lin, makeRng, pick, rand } from '../core/util.js';
+import { lin, makeRng, pick, rand, damp, dampAngle } from '../core/util.js';
 import { PED_SHIRTS } from '../world/data.js';
 
 const SKIN = ['#d9a97e', '#c98d63', '#a9714a', '#e4bd97', '#8a5a3a', '#f0cba8'];
@@ -92,11 +92,14 @@ export class Crowd {
     for (const e of edges) {
       for (const side of [1, -1]) {
         if (rng() > 0.45) continue;
+        // well back from the kerb, on the pavement: 2.6 m puts people clear of
+        // the asphalt on the narrowest streets
+        const off = e.width * 0.5 + 2.6;
         routes.push({
-          ax: e.ax + e.dz * (e.width * 0.5 + 1.7) * side,
-          az: e.az - e.dx * (e.width * 0.5 + 1.7) * side,
-          bx: e.bx + e.dz * (e.width * 0.5 + 1.7) * side,
-          bz: e.bz - e.dx * (e.width * 0.5 + 1.7) * side,
+          ax: e.ax + e.dz * off * side,
+          az: e.az - e.dx * off * side,
+          bx: e.bx + e.dz * off * side,
+          bz: e.bz - e.dx * off * side,
           bike: false
         });
       }
@@ -120,15 +123,22 @@ export class Crowd {
     const route = this.routes.length ? pick(this.routes) : null;
     if (!route) return;
     const bike = !!route.bike;
+    // most people stroll, a few are in a hurry
+    const stroll = Math.random() < 0.16 ? rand(2.3, 3.1) : rand(1.05, 1.75);
     const a = {
       route,
       t: rand(0, 1),
       dir: Math.random() < 0.5 ? 1 : -1,
-      speed: bike ? rand(3.8, 5.6) : rand(1.05, 1.7),
+      speed: bike ? rand(3.8, 5.6) : stroll,
       phase: rand(0, 6.28),
       x: 0,
       z: 0,
       heading: 0,
+      goalHeading: 0,
+      // side by side rather than exactly single file
+      offset: rand(-0.55, 0.55),
+      wait: 0,
+      swingAmp: 1,
       bike,
       height: bike ? 0.3 : 0,
       index: i
@@ -146,9 +156,15 @@ export class Crowd {
 
   place(a) {
     const r = a.route;
-    a.x = r.ax + (r.bx - r.ax) * a.t;
-    a.z = r.az + (r.bz - r.az) * a.t;
-    a.heading = Math.atan2((r.bx - r.ax) * a.dir, (r.bz - r.az) * a.dir);
+    const dx = r.bx - r.ax;
+    const dz = r.bz - r.az;
+    const len = Math.hypot(dx, dz) || 1;
+    // each walker keeps a small sideways offset of their own
+    const ox = -dz / len;
+    const oz = dx / len;
+    a.x = r.ax + dx * a.t + ox * a.offset;
+    a.z = r.az + dz * a.t + oz * a.offset;
+    a.goalHeading = Math.atan2(dx * a.dir, dz * a.dir);
   }
 
   update(dt) {
@@ -157,14 +173,24 @@ export class Crowd {
       const a = this.agents[i];
       const r = a.route;
       const segLen = Math.hypot(r.bx - r.ax, r.bz - r.az) || 1;
-      a.t += (a.dir * a.speed * dt) / segLen;
-      if (a.t > 1) { a.t = 1; a.dir = -1; }
-      if (a.t < 0) { a.t = 0; a.dir = 1; }
-      this.place(a);
-      a.phase += a.speed * dt * 4.6;
 
-      const swing = Math.sin(a.phase) * (a.bike ? 0.2 : 0.62);
-      const bob = a.bike ? 0 : Math.abs(Math.sin(a.phase)) * 0.028;
+      // at the end of a stretch people pause for a moment, then turn and go
+      // back — turning round on the spot instead of snapping 180 degrees
+      if (a.wait > 0) {
+        a.wait -= dt;
+      } else {
+        a.t += (a.dir * a.speed * dt) / segLen;
+        if (a.t >= 1) { a.t = 1; a.dir = -1; a.wait = rand(0.6, 2.6); }
+        else if (a.t <= 0) { a.t = 0; a.dir = 1; a.wait = rand(0.6, 2.6); }
+        a.phase += a.speed * dt * 4.6;
+      }
+      this.place(a);
+      a.heading = dampAngle(a.heading, a.goalHeading, a.wait > 0 ? 5 : 9, dt);
+
+      // legs settle when standing still, so nobody marches on the spot
+      a.swingAmp = damp(a.swingAmp, a.wait > 0 ? 0 : 1, 6, dt);
+      const swing = Math.sin(a.phase) * (a.bike ? 0.2 : 0.62) * a.swingAmp;
+      const bob = a.bike ? 0 : Math.abs(Math.sin(a.phase)) * 0.028 * a.swingAmp;
       const y = a.height + bob;
 
       Q.setFromEuler(E.set(a.bike ? 0.32 : 0, a.heading, 0, 'YXZ'));
@@ -227,7 +253,9 @@ export class Crowd {
         a.bike = !!route.bike;
         a.height = a.bike ? 0.3 : 0;
         a.t = rand(0, 1);
+        a.wait = 0;
         this.place(a);
+        a.heading = a.goalHeading;
       }
     }
   }
